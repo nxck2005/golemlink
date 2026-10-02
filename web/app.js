@@ -124,12 +124,10 @@ function initShell () {
   })
   store.on('session', () => {
     renderStatusBar()
-    renderBag()
   })
   store.on('status', renderStatusBar)
   store.on('snapshot', () => {
     renderStatusBar()
-    renderBag()
   })
   store.on('connection', connected => {
     if (connected) {

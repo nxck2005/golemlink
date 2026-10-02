@@ -4,6 +4,8 @@ import { itemTile, itemLabel } from './items.js'
 
 let detailsMode = false
 let openWindowBox, windowTitle, windowGrid, invGrid, hotbarGrid, armorGrid, cursorBanner, cursorItem, closeWindowButton
+let hotbarCells = []
+let lastQuick = null
 
 const CONTAINER_COLUMNS = [
   [/hopper/, 5],
@@ -102,14 +104,24 @@ function renderPlayer () {
   invGrid.textContent = ''
   hotbarGrid.textContent = ''
   armorGrid.textContent = ''
+  hotbarCells = []
   for (let slot = 5; slot <= 8; slot++) armorGrid.appendChild(makeCell({ item: playerItem(slot), ...clickTarget(slot) }))
   armorGrid.appendChild(makeCell({ item: playerItem(45), ...clickTarget(45) }))
   for (let slot = 9; slot <= 35; slot++) invGrid.appendChild(makeCell({ item: playerItem(slot), ...clickTarget(slot) }))
   const quick = store.status?.quick
+  lastQuick = quick
   for (let slot = 36; slot <= 44; slot++) {
     const cell = makeCell({ item: playerItem(slot), ...clickTarget(slot), extraClass: quick === slot - 36 ? 'active-slot' : '' })
+    hotbarCells.push(cell)
     hotbarGrid.appendChild(cell)
   }
+}
+
+function renderQuickSlot () {
+  const quick = store.status?.quick
+  if (quick === lastQuick) return
+  lastQuick = quick
+  hotbarCells.forEach((cell, index) => cell.classList.toggle('active-slot', index === quick))
 }
 
 export function renderBag () {
@@ -231,5 +243,6 @@ export function initBag () {
   store.on('snapshot', renderBag)
   store.on('inv', renderBag)
   store.on('window', renderBag)
-  store.on('status', renderBag)
+  store.on('session', renderBag)
+  store.on('status', renderQuickSlot)
 }
