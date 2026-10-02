@@ -27,7 +27,7 @@ check-no-native: ok (90 packages scanned)
 ℹ cancelled 0
 
 $ npm run e2e
-… 58/58 checks passed in 74.5s   (tier 1 + tier 2, exit 0)
+… 58/58 checks passed in 72.5s   (tier 1 + tier 2, exit 0)
 ```
 
 The e2e run covers, all through the daemon's WebSocket API:
