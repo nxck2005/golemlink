@@ -182,6 +182,10 @@ export class ChatLog {
   // Store and return the line. `echo` marks our own outgoing chat.
   add (message, position, sender, { echo = false } = {}) {
     const line = this.buildLine(message, position, sender)
+    return this.addLine(line, { echo })
+  }
+
+  addLine (line, { echo = false } = {}) {
     if (echo) line.echo = true
     this.lines.push(line)
     if (this.lines.length > this.maxLines) this.lines.splice(0, this.lines.length - this.maxLines)

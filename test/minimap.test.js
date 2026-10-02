@@ -126,3 +126,37 @@ test('a falling-out-of-range tile is dropped and reported', () => {
   assert.equal(minimap.tiles.size, 0)
   minimap.destroy()
 })
+
+test('refreshAll queues loaded columns and reset drops old tiles', () => {
+  const tops = new Map()
+  const dropped = []
+  const minimap = new Minimap({
+    bot: {
+      on () {},
+      removeListener () {},
+      world: {
+        getColumn: () => makeColumn(tops),
+        getColumns: () => [
+          { chunkX: '0', chunkZ: '0', column: {} },
+          { chunkX: '1', chunkZ: '-1', column: {} }
+        ]
+      },
+      game: { minY: 0, height: 64, dimension: 'overworld' },
+      entity: { position: { x: 8, y: 10, z: 8 } }
+    },
+    registry: makeRegistry(),
+    radiusChunks: 6,
+    onTiles: () => {},
+    onUntile: batch => dropped.push(...batch),
+    logger: { warn () {} }
+  })
+  minimap.refreshAll()
+  assert.equal(minimap.queue.size, 2)
+  minimap.tiles.set('0,0', { cx: 0, cz: 0, rgb: '' })
+  minimap.tiles.set('1,1', { cx: 1, cz: 1, rgb: '' })
+  minimap.reset()
+  assert.equal(minimap.tiles.size, 0)
+  assert.equal(minimap.queue.size, 0)
+  assert.deepEqual(dropped.sort((a, b) => a.cx - b.cx), [{ cx: 0, cz: 0 }, { cx: 1, cz: 1 }])
+  minimap.destroy()
+})

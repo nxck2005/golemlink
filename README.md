@@ -75,6 +75,19 @@ The UI moves the token from the fragment into `localStorage` and clears the
 fragment. If you start the daemon in the background, get the URL with
 `node src/main.js --print-url`.
 
+### First session
+
+1. Open the printed URL in the phone's browser.
+2. **More → Accounts → + Add account.** Pick `offline` for an offline-mode
+   server, or `microsoft` for a premium account (the username is the email).
+3. **More → Servers → + Add server.** Give it an id, host and port; leave
+   `version` on `auto`.
+4. **More → Sessions**: choose the account and server, then **Start**.
+5. For a Microsoft account, a banner shows the device code and link; sign in
+   there and the session finishes connecting.
+6. Switch to **Chat** or **Move**. The session picker in the top bar switches
+   between running sessions.
+
 ### Termux:Widget shortcuts
 
 Place these in `~/.shortcuts/tasks/` (Widgets → Termux:Widget). Tasks run in

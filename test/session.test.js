@@ -144,6 +144,22 @@ test('features expose goto/click modes and termux availability', () => {
   assert.equal(features.tabComplete, true)
 })
 
+test('server echoes of our own chat are not duplicated', () => {
+  const hub = stubHub()
+  const session = makeSession({ hub })
+  const sent = []
+  session.bot = { username: 'Bot', registry, supportFeature: () => false, chat: text => sent.push(text) }
+  session.state = 'online'
+  session.sendChat('hello world')
+  // modern servers echo player chat without a sender name: match exact text
+  session.handleMessage('hello world', 'chat', null)
+  assert.equal(session.chatLog.backlog().length, 1, 'own echo must not be logged twice')
+  const chats = hub.sent.map(entry => entry.msg).filter(msg => msg && msg.t === 'chat')
+  assert.equal(chats.length, 1)
+  session.handleMessage('someone else says hi', 'chat', null)
+  assert.equal(session.chatLog.backlog().length, 2)
+})
+
 test('auto-login fires once per connection and the echo is redacted', () => {
   const hub = stubHub()
   const session = makeSession({

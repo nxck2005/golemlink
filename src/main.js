@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import http from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -42,6 +43,11 @@ function parseArgs (argv) {
   }
   if (args.port !== null && (!Number.isInteger(args.port) || args.port < 1 || args.port > 65535)) {
     throw new Error('--port must be an integer between 1 and 65535')
+  }
+  if (args.unsafeBind !== null) {
+    if (args.unsafeBind === '0.0.0.0' || args.unsafeBind === '::' || args.unsafeBind.trim() === '') {
+      throw new Error('--unsafe-bind needs one specific interface address, not 0.0.0.0 or ::')
+    }
   }
   return args
 }

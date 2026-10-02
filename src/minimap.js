@@ -104,9 +104,11 @@ export class Minimap {
       const cz = Math.floor(newBlock.position.z) >> 4
       this.debounceTile(cx, cz)
     }
+    this.onRespawn = () => this.reset()
     bot.on('chunkColumnLoad', this.onLoad)
     bot.on('chunkColumnUnload', this.onUnload)
     bot.on('blockUpdate', this.onBlockUpdate)
+    bot.on('respawn', this.onRespawn)
     this.rangeTimer = setInterval(() => this.pruneRange(), 1000)
     this.rangeTimer.unref?.()
   }
@@ -120,6 +122,37 @@ export class Minimap {
     bot.removeListener('chunkColumnLoad', this.onLoad)
     bot.removeListener('chunkColumnUnload', this.onUnload)
     bot.removeListener('blockUpdate', this.onBlockUpdate)
+    bot.removeListener('respawn', this.onRespawn)
+  }
+
+  // Queue every loaded chunk (used when the first UI subscribes, or after a
+  // dimension change resets the world).
+  refreshAll () {
+    const columns = this.bot.world?.getColumns?.() || []
+    for (const entry of columns) {
+      const cx = Number(entry.chunkX)
+      const cz = Number(entry.chunkZ)
+      if (Number.isInteger(cx) && Number.isInteger(cz)) this.queueTile(cx, cz)
+    }
+    // If the world offers no column list, at least rebuild the tiles we know.
+    for (const key of this.tiles.keys()) {
+      const [cx, cz] = key.split(',').map(Number)
+      this.queueTile(cx, cz)
+    }
+  }
+
+  reset () {
+    const out = [...this.tiles.keys()].map(key => {
+      const [cx, cz] = key.split(',').map(Number)
+      return { cx, cz }
+    })
+    this.tiles.clear()
+    this.topHeights.clear()
+    this.queue.clear()
+    this.batch = []
+    for (const timer of this.debounce.values()) clearTimeout(timer)
+    this.debounce.clear()
+    if (out.length > 0) this.onUntile(out)
   }
 
   debounceTile (cx, cz) {

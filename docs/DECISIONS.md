@@ -59,41 +59,41 @@ consistent with it; they are recorded here as required by §1.
 
 ## Web UI
 
-9. **Detail sheet gesture.** Tap = left click and long-press = right click, as
+11. **Detail sheet gesture.** Tap = left click and long-press = right click, as
    specified. To open the item detail sheet there is a "ⓘ Details mode" toggle
    in the Bag toolbar: while it is on, tapping a slot opens the sheet instead of
    clicking. This keeps desktop click semantics intact.
 
-10. **Autostart.** `autostart` stays a config-file feature; the More tab starts
+12. **Autostart.** `autostart` stays a config-file feature; the More tab starts
     and stops sessions manually. The spec only asks the More tab for
     start/stop.
 
-11. **`tab` replies vs acks.** A `tab` request produces the `tab` reply; if it
+13. **`tab` replies vs acks.** A `tab` request produces the `tab` reply; if it
     carried an `id`, an `ack` follows as well.
 
-12. **Map tiles cache.** The bag/map keep decoded tile canvases and drop the
+14. **Map tiles cache.** The bag/map keep decoded tile canvases and drop the
     oldest beyond 800 entries, so a long session cannot grow without bound.
 
-13. **Player dots.** A tap on a player dot shows `name · ping` as a toast
+15. **Player dots.** A tap on a player dot shows `name · ping` as a toast
     instead of a persistent label.
 
 ## Fake server / e2e
 
-14. **Fake-server chest trigger.** The fake server opens its tracked chest
+16. **Fake-server chest trigger.** The fake server opens its tracked chest
     window on any `block_place`/`use_item_on` packet while a chest has been
     placed with `trackChest()`. It is a test scaffold, not a wire-accurate
     block interaction.
 
-15. **Tier-2 step order.** The damage alert is checked before the duplicate
+17. **Tier-2 step order.** The damage alert is checked before the duplicate
     login kick: after the kick the session is stopped, so there is no health to
     drop. Both are still covered.
 
-16. **Isolation in e2e.** The e2e cannot reach into the daemon process to make a
+18. **Isolation in e2e.** The e2e cannot reach into the daemon process to make a
     handler throw. Tier 1 checks that a kick to one session leaves the other
     online; `test/session-network.test.js` injects throwing listeners into a
     session's `physicsTick` and packet handlers in-process and asserts only that
     session ends.
 
-17. **`error then end` fixture.** A TCP server that destroys every connection
+19. **`error then end` fixture.** A TCP server that destroys every connection
     models "a server that's down produces two errors and one end" without a real
     Minecraft server.

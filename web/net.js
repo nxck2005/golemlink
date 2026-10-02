@@ -171,9 +171,14 @@ function handle (msg) {
     case 'alert':
       store.emit('alert', msg)
       break
-    case 'msa':
+    case 'msa': {
+      const session = store.sessions.find(s => s.id === msg.s)
+      if (session) {
+        session.pendingMsa = { code: msg.code, url: msg.url, expiresAt: msg.expiresAt }
+      }
       store.emit('msa', msg)
       break
+    }
     case 'accounts':
       store.accounts = msg.accounts || []
       store.emit('accounts')

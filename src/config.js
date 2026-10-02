@@ -390,7 +390,13 @@ export function applyServerUpdate (existing, update) {
       merged.autoLogin = null
     } else {
       if (incoming.password === undefined) {
-        incoming.password = existing?.autoLogin?.password ?? ''
+        const oldPassword = existing?.autoLogin?.password
+        if (!oldPassword) {
+          // no stored password to keep: nothing to auto-login with
+          merged.autoLogin = null
+          return merged
+        }
+        incoming.password = oldPassword
       }
       if (incoming.trigger === undefined) {
         incoming.trigger = existing?.autoLogin?.trigger ?? '/(login|log in)/i'

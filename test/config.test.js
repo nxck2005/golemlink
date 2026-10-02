@@ -76,6 +76,9 @@ test('autoLogin password merge semantics', () => {
   // absent autoLogin keeps the old one
   merged = applyServerUpdate(existing, { id: 's', host: 'h' })
   assert.equal(merged.autoLogin.password, 'old')
+  // trigger-only update with nothing stored produces no auto-login
+  merged = applyServerUpdate(null, { id: 's', host: 'h', autoLogin: { trigger: '/x/' } })
+  assert.equal(merged.autoLogin, null)
   // sanitize hides the password
   const safe = sanitizeServer(existing)
   assert.equal(safe.autoLogin, undefined)

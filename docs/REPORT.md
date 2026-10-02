@@ -1,7 +1,8 @@
 # Implementation report
 
-Implementation of `SPEC.md` on branch `impl/deepseek-v4.1-flash` (created from
-the `spec` tag), by DeepSeek V4.1 Flash.
+Implementation of `SPEC.md` on branch `impl/deepseek-v4.1-flash`, created from the
+`spec` tag (the tag was missing in this checkout, so it was created on the
+commit that added `SPEC.md`), by DeepSeek V4.1 Flash.
 
 ## Milestones
 
@@ -20,29 +21,30 @@ the `spec` tag), by DeepSeek V4.1 Flash.
 $ npm test
 > node scripts/check-no-native.mjs && node --test
 check-no-native: ok (90 packages scanned)
-ℹ tests 80
-ℹ pass 80
+ℹ tests 82
+ℹ pass 82
 ℹ fail 0
 ℹ cancelled 0
 
 $ npm run e2e
-… 57/57 checks passed in 80.8s   (tier 1 + tier 2, exit 0)
+… 58/58 checks passed in 74.5s   (tier 1 + tier 2, exit 0)
 ```
 
 The e2e run covers, all through the daemon's WebSocket API:
 
-- tier 1 (fake server): chat round-trip; forward with holds then stop;
-  dead-man timeout; 3-high wall + goto arriving within 0.00 blocks with no
-  dig/place packets; inventory delta; chest window; mode-0 and shift-click
-  clicks confirmed server side; drop one/stack click sequences; resource pack
-  accepted during play; damage alert; duplicate login stops the session and it
-  stays stopped for 15 s; Velocity and idle kicks stop the session; an
-  outdated-client kick reports `version`; a server reporting 26.3 (protocol
-  777) stops with the server version, supported range and ViaVersion advice and
-  never reconnects; a down server reconnects with a ~5 s backoff and succeeds
-  when it returns; wrong/missing/short tokens, bad Origin/Host and auth timeouts
-  all close with 4401; traversal/dotfiles/POST rejected with CSP, nosniff and
-  no-referrer headers; a kick to one session leaves another online.
+- tier 1 (fake server): chat round-trip; map tiles pushed after subscribing;
+  forward with holds then stop; dead-man timeout; 3-high wall + goto arriving
+  within 0.00 blocks with no dig/place packets; inventory delta; chest window;
+  mode-0 and shift-click clicks confirmed server side; drop one/stack click
+  sequences; resource pack accepted during play; damage alert; duplicate login
+  stops the session and it stays stopped for 15 s; Velocity and idle kicks stop
+  the session; an outdated-client kick reports `version`; a server reporting
+  26.3 (protocol 777) stops with the server version, supported range and
+  ViaVersion advice and never reconnects; a down server reconnects with a ~5 s
+  backoff and succeeds when it returns; wrong/missing/short tokens, bad
+  Origin/Host and auth timeouts all close with 4401; traversal/dotfiles/POST
+  rejected with CSP, nosniff and no-referrer headers; a kick to one session
+  leaves another online.
 - tier 2 (vanilla 1.21.11 server, downloaded from Mojang and cached in
   `.cache/`): the whole scenario above re-run against a real server, including
   console-driven `fill`/`give`/`setblock`/`damage` and `data get block`

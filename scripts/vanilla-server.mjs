@@ -92,7 +92,7 @@ export class VanillaServer {
     const start = this.outputRef.text.length
     return new Promise((resolve, reject) => {
       const timer = setInterval(() => {
-        if (this.outputRef.text.slice(start).includes(substring) || this.outputRef.text.includes(substring)) {
+        if (this.outputRef.text.slice(start).includes(substring)) {
           clearInterval(timer)
           clearTimeout(failTimer)
           resolve(true)

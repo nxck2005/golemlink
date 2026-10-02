@@ -246,6 +246,10 @@ async function tier1Main () {
   await withEnv(async ({ ws, fake }) => {
     await setupSession(ws, fake)
 
+    // map tiles are pushed after the subscription (snapshot first)
+    const tiles = await ws.waitFor('tiles', m => m.s === SESSION && m.tiles && m.tiles.length > 0, 10000, 'map tiles')
+    check('map tiles arrive after sub', tiles.tiles.every(t => typeof t.cx === 'number' && typeof t.rgb === 'string'))
+
     // 2. chat round-trip
     await ws.request({ t: 'chat', s: SESSION, text: 'hello e2e' })
     await sleep(300)
@@ -717,17 +721,22 @@ async function waitForStatus (ws, predicate, timeout) {
 
 async function main () {
   const start = Date.now()
+  const tier = process.env.E2E_TIER || ''
   try {
-    await tier1Main()
-    await tier1Kicks()
-    await tier1PingVersion()
-    await tier1ConfigAndSecurity()
-    await tier1Isolation()
+    if (tier === '2') {
+      console.log('SKIPPED tier 1 (E2E_TIER=2)')
+    } else {
+      await tier1Main()
+      await tier1Kicks()
+      await tier1PingVersion()
+      await tier1ConfigAndSecurity()
+      await tier1Isolation()
+    }
   } catch (err) {
     check('tier1 scenario completed', false, err.stack || err.message)
   }
   try {
-    if (process.env.E2E_TIER === '1') {
+    if (tier === '1') {
       console.log('SKIPPED tier 2 (E2E_TIER=1)')
     } else {
       await tier2()

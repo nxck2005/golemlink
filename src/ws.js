@@ -210,6 +210,7 @@ export class WsHub {
           client.subscriptions.add(value.s)
           this.send(client, session.snapshot())
           for (const tiles of session.tileBatches()) this.send(client, { t: 'tiles', s: value.s, tiles })
+          session.onSubscribed()
           break
         }
         case 'session.start':

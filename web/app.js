@@ -1,6 +1,6 @@
 import { store } from './store.js'
 import { connect, send, subscribe } from './net.js'
-import { initChat, appendSystemLine } from './chat.js'
+import { initChat } from './chat.js'
 import { initMove, releaseAllControls, onResize, hasMomentary } from './move.js'
 import { initBag, renderBag } from './bag.js'
 import { initMore } from './more.js'

@@ -395,6 +395,7 @@ export class Session {
       expiresAt: Date.now() + expiresIn * 1000
     }
     this.hub.broadcast({ t: 'msa', s: this.id, ...this.pendingMsa })
+    this.manager.notifySessionsChanged()
     this.logger.info(`session ${this.id}: Microsoft sign-in code ${userCode} at ${url}`)
     this.alerts.msa(userCode, url)
     if (this.msaExpiryTimer) clearTimeout(this.msaExpiryTimer)
@@ -450,6 +451,7 @@ export class Session {
       onUntile: tiles => this.sendToSubscribers({ t: 'untile', s: this.id, tiles })
     })
     this.minimap.start()
+    this.minimap.refreshAll()
 
     bot.on('message', (message, position, sender) => this.handleMessage(message, position, sender))
     bot.on('actionBar', message => {
@@ -505,11 +507,17 @@ export class Session {
     if (position === 'game_info') return
     const bot = this.bot
     if (!bot) return
-    const line = this.chatLog.add(message, position, sender)
+    const line = this.chatLog.buildLine(message, position, sender)
     const senderName = typeof sender === 'string' ? sender : sender?.name || null
-    if (position === 'chat' && senderName === bot.username && this.isEcho(line.plain)) {
-      return
+    // Server echoes of our own chat: match by sender where one is present,
+    // otherwise by exact text (modern servers send a UUID, not a name).
+    if (position === 'chat') {
+      const own = senderName === bot.username
+        ? this.consumeEcho(line.plain)
+        : this.consumeEcho(line.plain, { exact: true })
+      if (own) return
     }
+    this.chatLog.addLine(line)
     this.sendToSubscribers({ t: 'chat', s: this.id, ts: line.ts, plain: line.plain, segs: line.segs })
     this.alerts.chat(line, senderName)
     if (this.autoLogin && !this.autoLogin.sent && this.autoLogin.trigger && this.autoLogin.trigger.test(line.plain)) {
@@ -522,11 +530,14 @@ export class Session {
     }
   }
 
-  isEcho (plain) {
+  consumeEcho (plain, { exact = false } = {}) {
     const now = Date.now()
     for (const [text, ts] of this.sentTexts) {
-      if (now - ts > 5000) this.sentTexts.delete(text)
-      else if (plain.includes(text)) {
+      if (now - ts > 5000) {
+        this.sentTexts.delete(text)
+        continue
+      }
+      if ((exact && plain === text) || (!exact && plain.includes(text))) {
         this.sentTexts.delete(text)
         return true
       }
@@ -650,6 +661,11 @@ export class Session {
     const batches = []
     for (let i = 0; i < tiles.length; i += 32) batches.push(tiles.slice(i, i + 32))
     return batches
+  }
+
+  // Called by the hub right after a client subscribes.
+  onSubscribed () {
+    this.minimap?.refreshAll()
   }
 
   sendToSubscribers (msg) {
