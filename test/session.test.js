@@ -5,6 +5,18 @@ import { makeSession, testRegistry, stubHub } from './helpers.mjs'
 const registry = testRegistry('1.21.11')
 const fakeBot = { registry }
 
+test('status includes XP progress independently of the current level', () => {
+  const session = makeSession()
+  session.bot = {
+    entity: { position: { x: 0, y: 64, z: 0 }, yaw: 0, pitch: 0 },
+    experience: { level: 42, progress: 0.25 }
+  }
+  session.targetName = () => null
+  const status = session.statusPayload()
+  assert.equal(status.xpLvl, 42)
+  assert.equal(status.xpProgress, 0.25)
+})
+
 function classify (session, kind, data) {
   return session.classify(kind, data, fakeBot)
 }

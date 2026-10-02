@@ -216,6 +216,12 @@ export class InventoryMirror {
       }
       this.send(msg)
     }
+    // Picking up or placing a cursor stack can change no slots. Still send
+    // its new value, including null when the cursor has been emptied.
+    if (this.pendingCursor !== undefined) {
+      this.send({ t: 'inv', s: this.sessionId, window: this.currentWindowId(), slots: {}, cursor: this.pendingCursor })
+      this.pendingCursor = undefined
+    }
     this.pending.clear()
   }
 

@@ -95,7 +95,7 @@ below), which are v1 extensions to the spec table.
 | `state` | `s`, `state` (`connecting`,`online`,`reconnecting`,`stopped`), `reason`, `detail`, `retryInMs?` |
 | `snapshot` | `s`, `state`, `reason`, `detail`, `status`, `inventory`, `window`, `cursor`, `chat`, `players`, `features` |
 | `chat` | `s`, `ts`, `plain`, `segs`, `echo?` |
-| `status` | `s`, `x,y,z,yaw,pitch,dim,hp,food,sat,xpLvl,gm,quick,actionbar,target,ctl` (5 Hz) |
+| `status` | `s`, `x,y,z,yaw,pitch,dim,hp,food,sat,xpLvl,xpProgress,gm,quick,actionbar,target,ctl` (5 Hz) |
 | `inv` | `s`, `window`, `slots` delta `{ "<slot>": item \| null }`, `cursor?` (debounced 50 ms) |
 | `window` | `s`, a window object or `null` |
 | `tiles` | `s`, `[{cx,cz,rgb}]` (at most 32 per message) |

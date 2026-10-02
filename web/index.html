@@ -14,53 +14,58 @@
 <div id="banners"></div>
 
 <header id="statusbar">
+  <div class="brand"><img src="/icon.svg" alt="" width="34" height="34"><div><strong>golemlink</strong><span>YOUR MINECRAFT COMPANION</span></div><span id="connection-state" class="connection-state">Connecting</span></div>
   <div class="statusrow">
-    <button id="session-picker" class="picker" type="button" aria-haspopup="listbox">
+    <button id="session-picker" class="picker" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose session">
       <span id="state-dot" class="dot stopped"></span>
-      <span id="session-label" class="mono">no session</span>
+      <span id="session-label" class="mono">Choose a session</span>
       <span class="caret">▾</span>
     </button>
     <span id="coords" class="mono muted">–</span>
   </div>
   <div id="session-menu" class="menu hidden" role="listbox"></div>
   <div class="bars">
-    <div class="bar hp"><span id="hp-fill"></span></div>
-    <div class="bar food"><span id="food-fill"></span></div>
-    <div class="bar xp"><span id="xp-fill"></span></div>
+    <div class="stat"><div>Health <strong id="hp-value">—</strong></div><div class="bar hp"><span id="hp-fill"></span></div></div>
+    <div class="stat"><div>Food <strong id="food-value">—</strong></div><div class="bar food"><span id="food-fill"></span></div></div>
+    <div class="stat"><div>XP level <strong id="xp-value">—</strong></div><div class="bar xp"><span id="xp-fill"></span></div></div>
   </div>
   <div id="actionbar" class="mono muted"></div>
 </header>
 
 <main id="content">
   <section id="tab-chat" class="tab active">
-    <div id="chat-log" class="log mono"></div>
+    <div class="page-heading"><div><span class="eyebrow">STAY CONNECTED</span><h1>Chat</h1><p>Your server conversations, all in one place.</p></div><input id="chat-search" type="search" placeholder="Search messages" aria-label="Search chat messages"></div>
+    <div id="chat-empty" class="empty-state"><span class="empty-icon" aria-hidden="true">◇</span><h2>Your next adventure starts here</h2><p>Add an account and a server, then start a session. Your bot stays connected even when you close this page.</p><button id="setup-open" class="primary" type="button">Set up your first session →</button></div>
+    <div id="chat-log" class="log mono" role="log" aria-label="Server chat"></div>
     <button id="jump-latest" class="chip hidden" type="button">Jump to latest ↓</button>
     <div id="suggestions" class="chips hidden"></div>
     <form id="chat-form">
-      <input id="chat-input" type="text" autocomplete="off" autocapitalize="off" enterkeyhint="send" placeholder="Message or /command">
-      <button id="chat-send" type="submit">Send</button>
+      <input id="chat-input" type="text" autocomplete="off" autocapitalize="off" enterkeyhint="send" placeholder="Message or /command" aria-label="Message or command">
+      <button id="chat-send" class="primary" type="submit">Send ↑</button>
     </form>
   </section>
 
   <section id="tab-move" class="tab">
+    <div class="page-heading"><div><span class="eyebrow">EXPLORE YOUR WORLD</span><h1>Movement</h1><p>Drag to move or look. Tap the map to choose a destination.</p></div></div>
     <div id="move-top">
       <div id="map-wrap">
-        <canvas id="map" width="300" height="300"></canvas>
+        <canvas id="map" width="300" height="300" aria-label="Nearby terrain and players"></canvas>
+        <span class="map-label">N ↑ · Nearby terrain</span>
         <div class="map-controls">
-          <button id="zoom-out" type="button">−</button>
-          <button id="zoom-in" type="button">+</button>
+          <button id="zoom-out" type="button" aria-label="Zoom out">−</button>
+          <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
         </div>
         <div id="goto-chip" class="chip hidden"><span id="goto-text"></span><button id="goto-go" type="button">Go</button></div>
       </div>
       <div id="move-side">
-        <div id="look-pad"><span class="pad-label">look</span></div>
+        <div id="look-pad"><span class="pad-label">＋<br><strong>Drag to look</strong></span></div>
         <div class="row">
           <button id="turn-left" class="btn" type="button">⟲ 90°</button>
           <button id="turn-right" class="btn" type="button">⟳ 90°</button>
         </div>
         <div id="looking-at" class="mono muted small"></div>
         <div id="step-row" class="row wrap">
-          <span class="label">step</span>
+          <span class="label">Step direction / blocks</span>
           <button class="btn step" data-dir="n" type="button">N</button>
           <button class="btn step" data-dir="e" type="button">E</button>
           <button class="btn step" data-dir="s" type="button">S</button>
@@ -73,7 +78,7 @@
       </div>
     </div>
     <div id="move-bottom">
-      <div id="joystick"><div id="stick"></div></div>
+      <div class="joystick-wrap"><div id="joystick" aria-label="Drag joystick to move"><div id="stick"></div></div><span class="small muted">Drag to move</span></div>
       <div id="actions">
         <button id="btn-jump" class="btn big" type="button">Jump</button>
         <button id="btn-sprint" class="btn toggle" type="button">Sprint</button>
@@ -86,6 +91,8 @@
   </section>
 
   <section id="tab-bag" class="tab">
+    <div class="page-heading"><div><span class="eyebrow">READY FOR ANYTHING</span><h1>Inventory</h1><p>Tap for left click. Right-click or hold for right click. Details mode has buttons for both, including server menus.</p></div></div>
+    <p id="bag-empty" class="card muted">Start a session to see your backpack, armor, and hotbar.</p>
     <div id="bag-toolbar">
       <span id="cursor-banner" class="hidden">Cursor: <span id="cursor-item"></span></span>
       <button id="details-toggle" class="btn small" type="button">ⓘ Details mode</button>
@@ -95,41 +102,41 @@
       <h2 id="window-title" class="mono"></h2>
       <div id="window-grid" class="grid"></div>
     </div>
-    <h2 class="mono small muted">inventory</h2>
+    <h2>Armor &amp; offhand</h2>
     <div id="armor-row" class="grid"></div>
+    <h2>Backpack</h2>
     <div id="inv-grid" class="grid"></div>
+    <h2>Hotbar</h2>
     <div id="hotbar-grid" class="grid hotbar"></div>
   </section>
 
   <section id="tab-more" class="tab">
-    <h2>Sessions</h2>
-    <div id="sessions-list"></div>
-    <h2>Players</h2>
-    <div id="players-list" class="mono small muted">–</div>
-    <h2>Servers</h2>
-    <div id="servers-list"></div>
-    <h2>Accounts</h2>
-    <div id="accounts-list"></div>
-    <h2>Daemon</h2>
-    <div id="daemon-info" class="mono small muted">–</div>
+    <div class="page-heading"><div><span class="eyebrow">MAKE YOURSELF AT HOME</span><h1>Setup &amp; sessions</h1><p>Add an account, choose a server, and bring your bot online.</p></div></div>
+    <div class="settings-grid">
+      <section class="settings-section"><h2><span class="section-number">1</span> Accounts</h2><p class="section-help">Microsoft for premium servers; offline for offline-mode servers.</p><div id="accounts-list"></div></section>
+      <section class="settings-section"><h2><span class="section-number">2</span> Servers</h2><p class="section-help">Where would you like to play? Version detection is automatic.</p><div id="servers-list"></div></section>
+      <section class="settings-section wide"><h2><span class="section-number">3</span> Sessions</h2><p class="section-help">Pair an account with a server. Multiple bots can run at once.</p><div id="sessions-list"></div></section>
+      <section class="settings-section"><h2>Online players</h2><div id="players-list" class="mono small muted">–</div></section>
+      <section class="settings-section"><h2>Daemon health</h2><div id="daemon-info" class="mono small muted">–</div></section>
+    </div>
     <p class="disclaimer">Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.</p>
   </section>
 </main>
 
-<nav id="tabs">
-  <button class="tabbtn active" data-tab="chat" type="button">Chat</button>
-  <button class="tabbtn" data-tab="move" type="button">Move</button>
-  <button class="tabbtn" data-tab="bag" type="button">Bag</button>
-  <button class="tabbtn" data-tab="more" type="button">More</button>
+<nav id="tabs" aria-label="Main navigation">
+  <button class="tabbtn active" data-tab="chat" type="button" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v12H9l-5 4z"/></svg><span>Chat</span></button>
+  <button class="tabbtn" data-tab="move" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 18-8-4-8 4z"/></svg><span>Move</span></button>
+  <button class="tabbtn" data-tab="bag" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7V4h8v3M5 7h14v14H5zM5 12h14M10 12v3h4v-3"/></svg><span>Inventory</span></button>
+  <button class="tabbtn" data-tab="more" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16M8 3v6M16 9v6M8 15v6"/></svg><span>Setup</span></button>
 </nav>
 
-<div id="sheet" class="hidden">
+<div id="sheet" class="hidden" role="dialog" aria-label="Item details">
   <div id="sheet-body"></div>
   <button id="sheet-close" class="btn" type="button">Close</button>
 </div>
 
-<div id="toasts"></div>
-<div id="disconnect-banner" class="banner hidden"></div>
+<div id="toasts" role="status" aria-live="polite"></div>
+<div id="disconnect-banner" class="banner hidden" role="status"></div>
 
 <script type="module" src="/app.js"></script>
 </body>

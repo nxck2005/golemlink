@@ -5,6 +5,39 @@ import { ensureContrast } from './items.js'
 let log, jumpButton, form, input, suggestionBox
 let autoScroll = true
 let tabTimer = null
+let searchInput
+
+function matchesSearch (line) {
+  const text = line.plain || (line.segs || []).map(seg => seg.x).join('')
+  return text.toLowerCase().includes(searchInput.value.trim().toLowerCase())
+}
+
+function renderChat () {
+  log.textContent = ''
+  const matching = store.chat.filter(matchesSearch)
+  for (const line of matching) log.appendChild(makeLine(line))
+  log.classList.toggle('hidden', store.chat.length === 0)
+  const empty = document.getElementById('chat-empty')
+  empty.classList.toggle('hidden', store.chat.length > 0)
+  empty.querySelector('h2').textContent = store.sessionId ? 'You’re connected to your adventure' : 'Your next adventure starts here'
+  empty.querySelector('p').textContent = store.sessionId ? 'Messages will appear here when the server sends them. You can send a message or /command below once your bot is online.' : 'Add an account and a server, then start a session. Your bot stays connected even when you close this page.'
+  document.getElementById('setup-open').textContent = store.sessionId ? 'Manage sessions →' : 'Set up your first session →'
+  if (store.chat.length && !matching.length) {
+    const message = document.createElement('div')
+    message.className = 'muted'
+    message.textContent = 'No messages match your search.'
+    log.appendChild(message)
+  }
+  log.scrollTop = log.scrollHeight
+  jumpButton.classList.add('hidden')
+}
+
+function updateComposer () {
+  const online = store.connected && store.session()?.state === 'online'
+  input.disabled = !online
+  document.getElementById('chat-send').disabled = !online
+  input.placeholder = online ? 'Message or /command' : 'Start an online session to chat'
+}
 
 function nearBottom () {
   return log.scrollHeight - log.scrollTop - log.clientHeight < 40
@@ -37,6 +70,10 @@ function makeLine (line) {
 }
 
 function appendLine (line) {
+  if (searchInput.value || log.classList.contains('hidden')) {
+    renderChat()
+    return
+  }
   const stick = nearBottom()
   log.appendChild(makeLine(line))
   while (log.childElementCount > 500) log.removeChild(log.firstElementChild)
@@ -70,13 +107,25 @@ export function initChat () {
   form = document.getElementById('chat-form')
   input = document.getElementById('chat-input')
   suggestionBox = document.getElementById('suggestions')
+  searchInput = document.getElementById('chat-search')
+  searchInput.addEventListener('input', renderChat)
 
   store.on('snapshot', () => {
-    log.textContent = ''
-    for (const line of store.chat) appendLine(line)
-    log.scrollTop = log.scrollHeight
+    renderChat()
+    updateComposer()
     autoScroll = true
   })
+  store.on('session', () => {
+    clearTimeout(tabTimer)
+    input.value = ''
+    searchInput.value = ''
+    renderSuggestions([])
+    renderChat()
+    updateComposer()
+  })
+  store.on('sessions', updateComposer)
+  store.on('hello', updateComposer)
+  store.on('connection', updateComposer)
   store.on('chat', line => appendLine(line))
   store.on('tab', msg => {
     if (msg.s === store.sessionId) renderSuggestions(msg.items)
@@ -111,6 +160,8 @@ export function initChat () {
       suggestionBox.classList.add('hidden')
     }
   })
+  renderChat()
+  updateComposer()
 }
 
 export function appendSystemLine (text) {

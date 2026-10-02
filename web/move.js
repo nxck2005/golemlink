@@ -4,10 +4,12 @@ import { send } from './net.js'
 const MOMENTARY = ['forward', 'back', 'left', 'right', 'jump']
 const controls = Object.fromEntries(MOMENTARY.map(k => [k, false]))
 let joystickPointer = null
+let jumpPointer = null
 let holdTimer = null
 let lookPointer = null
 let lastLookPoint = { x: 0, y: 0 }
 let pendingLook = null
+let dragLook = null
 let lookTimer = null
 let lastLookSent = 0
 let zoom = 2
@@ -22,8 +24,10 @@ function activeSession () {
 
 export function sendControl (k, on) {
   if (controls[k] === on) return
+  if (on && (!store.connected || store.session()?.state !== 'online')) return
+  const sent = send({ t: 'ctl', s: activeSession(), k, on })
+  if (on && !sent) return
   controls[k] = on
-  send({ t: 'ctl', s: activeSession(), k, on })
   updateHeartbeat()
 }
 
@@ -38,6 +42,13 @@ function updateHeartbeat () {
 }
 
 export function releaseAllControls (notify = false) {
+  const captured = [['joystick', joystickPointer], ['look-pad', lookPointer], ['btn-jump', jumpPointer]]
+  jumpPointer = null
+  pendingLook = null
+  dragLook = null
+  lookPointer = null
+  if (lookTimer) clearTimeout(lookTimer)
+  lookTimer = null
   for (const k of MOMENTARY) {
     if (controls[k]) {
       controls[k] = false
@@ -49,6 +60,10 @@ export function releaseAllControls (notify = false) {
     holdTimer = null
   }
   resetStick()
+  for (const [id, pointer] of captured) {
+    const element = document.getElementById(id)
+    if (pointer !== null && element?.hasPointerCapture(pointer)) element.releasePointerCapture(pointer)
+  }
 }
 
 function resetStick () {
@@ -66,7 +81,7 @@ function moveStick (event) {
   const rect = joystick.getBoundingClientRect()
   const cx = rect.left + rect.width / 2
   const cy = rect.top + rect.height / 2
-  const radius = rect.width / 2 - 24
+  const radius = Math.max(1, (rect.width - stick.getBoundingClientRect().width) / 2)
   let dx = (event.clientX - cx) / radius
   let dy = (event.clientY - cy) / radius
   const length = Math.hypot(dx, dy)
@@ -106,11 +121,17 @@ export function initMove () {
   const joystick = document.getElementById('joystick')
   joystick.addEventListener('contextmenu', e => e.preventDefault())
   joystick.addEventListener('pointerdown', event => {
+    if (event.button !== 0 || joystickPointer !== null || !store.connected || store.session()?.state !== 'online') return
+    event.preventDefault()
     joystickPointer = event.pointerId
     joystick.setPointerCapture(event.pointerId)
     moveStick(event)
   })
   joystick.addEventListener('pointermove', event => {
+    if (event.pointerType === 'mouse' && !(event.buttons & 1)) {
+      endStick(event)
+      return
+    }
     if (event.pointerId === joystickPointer) moveStick(event)
   })
   const endStick = event => {
@@ -123,12 +144,16 @@ export function initMove () {
   }
   joystick.addEventListener('pointerup', endStick)
   joystick.addEventListener('pointercancel', endStick)
+  joystick.addEventListener('lostpointercapture', endStick)
 
   // look pad
   const pad = document.getElementById('look-pad')
   pad.addEventListener('contextmenu', e => e.preventDefault())
   pad.addEventListener('pointerdown', event => {
+    if (event.button !== 0 || lookPointer !== null || !store.connected || store.session()?.state !== 'online') return
+    event.preventDefault()
     lookPointer = event.pointerId
+    dragLook = { yaw: store.status?.yaw || 0, pitch: store.status?.pitch || 0 }
     lastLookPoint = { x: event.clientX, y: event.clientY }
     pad.setPointerCapture(event.pointerId)
   })
@@ -138,12 +163,13 @@ export function initMove () {
     const dy = event.clientY - lastLookPoint.y
     lastLookPoint = { x: event.clientX, y: event.clientY }
     const status = store.status || { yaw: 0, pitch: 0 }
-    const base = pendingLook || { yaw: status.yaw || 0, pitch: status.pitch || 0 }
+    const base = dragLook || { yaw: status.yaw || 0, pitch: status.pitch || 0 }
     const sensitivity = 0.006
     pendingLook = {
       yaw: base.yaw - dx * sensitivity,
       pitch: Math.max(-Math.PI / 2, Math.min(Math.PI / 2, base.pitch - dy * sensitivity))
     }
+    dragLook = pendingLook
     scheduleLook()
   })
   const endLook = event => {
@@ -151,6 +177,7 @@ export function initMove () {
   }
   pad.addEventListener('pointerup', endLook)
   pad.addEventListener('pointercancel', endLook)
+  pad.addEventListener('lostpointercapture', endLook)
 
   document.getElementById('turn-left').addEventListener('click', () => {
     const status = store.status || { yaw: 0, pitch: 0 }
@@ -166,14 +193,32 @@ export function initMove () {
   // controls
   const jump = document.getElementById('btn-jump')
   const press = event => {
-    if (!event.isPrimary) return
+    if (event.button !== 0 || jumpPointer !== null || !store.connected || store.session()?.state !== 'online') return
+    event.preventDefault()
+    jumpPointer = event.pointerId
     jump.setPointerCapture(event.pointerId)
     sendControl('jump', true)
   }
-  const release = () => sendControl('jump', false)
+  const release = event => {
+    if (event.pointerId !== jumpPointer) return
+    jumpPointer = null
+    sendControl('jump', false)
+  }
   jump.addEventListener('pointerdown', press)
   jump.addEventListener('pointerup', release)
   jump.addEventListener('pointercancel', release)
+  jump.addEventListener('lostpointercapture', release)
+  jump.addEventListener('keydown', event => {
+    if (![' ', 'Enter'].includes(event.key)) return
+    event.preventDefault()
+    sendControl('jump', true)
+  })
+  jump.addEventListener('keyup', event => {
+    if (![' ', 'Enter'].includes(event.key)) return
+    event.preventDefault()
+    sendControl('jump', false)
+  })
+  jump.addEventListener('blur', () => sendControl('jump', false))
 
   document.getElementById('btn-sprint').addEventListener('click', () => {
     const on = Boolean(store.status?.ctl?.sprint)
@@ -223,14 +268,22 @@ export function initMove () {
   window.addEventListener('resize', resizeCanvas)
   store.on('snapshot', () => {
     hideGotoChip()
-    releaseAllControls(false)
+    releaseAllControls(true)
     tileCache.clear()
+    updateMoveStatus()
     drawMap()
   })
   store.on('session', () => {
     releaseAllControls(false)
+    hideGotoChip()
     tileCache.clear()
+    updateMoveStatus()
     drawMap()
+  })
+  store.on('hello', updateMoveStatus)
+  store.on('sessions', () => {
+    if (store.session()?.state !== 'online') releaseAllControls(true)
+    updateMoveStatus()
   })
   store.on('tiles', () => drawMap())
   store.on('status', () => {
@@ -238,14 +291,21 @@ export function initMove () {
     drawMap()
   })
   store.on('players', () => drawMap())
+  store.on('connection', connected => {
+    if (!connected) releaseAllControls(false)
+    updateMoveStatus()
+  })
   store.on('ctlReset', () => releaseAllControls(false))
   store.on('goto', msg => {
     if (msg.phase === 'failed') hideGotoChip()
   })
+  updateMoveStatus()
 }
 
 function updateMoveStatus () {
   const status = store.status
+  const online = store.connected && store.session()?.state === 'online'
+  for (const button of document.querySelectorAll('#actions button, #step-row button, #turn-left, #turn-right, #goto-go')) button.disabled = !online
   document.getElementById('btn-sprint').classList.toggle('active', Boolean(status?.ctl?.sprint))
   document.getElementById('btn-sneak').classList.toggle('active', Boolean(status?.ctl?.sneak))
   const target = status?.target

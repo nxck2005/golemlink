@@ -10,9 +10,13 @@ export function tokenFromUrl () {
     token = localStorage.getItem('golemlink.token')
   } catch {}
   if (location.hash.startsWith('#t=')) {
-    token = decodeURIComponent(location.hash.slice(3))
     try {
-      localStorage.setItem('golemlink.token', token)
+      token = decodeURIComponent(location.hash.slice(3))
+    } catch {
+      token = null
+    }
+    try {
+      if (token) localStorage.setItem('golemlink.token', token)
     } catch {}
     try {
       history.replaceState(null, '', location.pathname + location.search)
@@ -72,19 +76,25 @@ export function subscribe (id = store.sessionId) {
   if (id) send({ t: 'sub', s: id })
 }
 
-function updateSession (state, reason, detail, retryInMs) {
+function updateSession (state) {
   const session = store.sessions.find(s => s.id === state.s)
   if (session) {
     session.state = state.state
     session.reason = state.reason
     session.detail = state.detail
-    if (retryInMs) session.retryInMs = retryInMs
+    if (state.retryInMs) session.retryInMs = state.retryInMs
     else delete session.retryInMs
+    if (state.state !== 'connecting') delete session.pendingMsa
   }
   store.emit('sessions')
 }
 
 function handle (msg) {
+  if (!msg || typeof msg !== 'object') return
+  // A socket can be subscribed to several bots. Never apply another bot's
+  // inventory, map or completion response to the selected session.
+  const scoped = ['snapshot', 'status', 'chat', 'inv', 'window', 'tiles', 'untile', 'players', 'ctlReset', 'goto', 'tab']
+  if (scoped.includes(msg.t) && msg.s !== store.sessionId) return
   switch (msg.t) {
     case 'hello': {
       store.hello = msg
@@ -94,6 +104,7 @@ function handle (msg) {
       store.daemon = msg.daemon || null
       store.features = { ...store.features, ...(msg.features || {}) }
       store.connected = true
+      store.tokenRejected = false
       if (!store.sessionId || !store.sessions.some(s => s.id === store.sessionId)) {
         store.setSession(store.sessions[0]?.id || null)
       }
@@ -104,8 +115,9 @@ function handle (msg) {
     }
     case 'sessions':
       store.sessions = msg.sessions || []
-      if (store.sessionId && !store.sessions.some(s => s.id === store.sessionId)) {
+      if (!store.sessionId || !store.sessions.some(s => s.id === store.sessionId)) {
         store.setSession(store.sessions[0]?.id || null)
+        subscribe()
       }
       store.emit('sessions')
       break

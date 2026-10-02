@@ -10,6 +10,46 @@ function serverConfig (port, extra = {}) {
   return { id: 'srv', name: 'srv', host: '127.0.0.1', port, version: MC_VERSION, autoReconnect: false, chatLog: false, ...extra }
 }
 
+test('clients subscribed while connecting receive a complete inventory snapshot on spawn', async () => {
+  const fake = await startFakeServer({ version: MC_VERSION })
+  const hub = stubHub()
+  const session = makeSession({ hub, server: serverConfig(fake.port) })
+  try {
+    session.start()
+    await waitUntil(() => session.state === 'connecting')
+    const connecting = session.snapshot()
+    assert.equal(connecting.inventory, null)
+    session.onSubscribed()
+    await waitUntil(() => session.state === 'online', { timeout: 15000, label: 'online' })
+    const snapshot = hub.sent.find(entry => entry.msg.t === 'snapshot' && entry.msg.state === 'online')?.msg
+    assert.ok(snapshot, 'spawn must resync clients that subscribed before inventory was attached')
+    assert.equal(snapshot.inventory.id, 0)
+    assert.equal(snapshot.inventory.slots.length, session.bot.inventory.slots.length)
+    assert.ok(snapshot.inventory.slots.length >= 45)
+    assert.ok(snapshot.status)
+  } finally {
+    session.destroy()
+    await fake.stop()
+  }
+})
+
+test('spawning cancels the connection timeout and late connect events cannot rearm it', async () => {
+  const fake = await startFakeServer({ version: MC_VERSION })
+  const session = makeSession({ server: serverConfig(fake.port), noSpawnMs: 1500 })
+  try {
+    session.start()
+    await waitUntil(() => session.state === 'online', { timeout: 10000, label: 'online' })
+    assert.equal(session.noSpawnTimer, null, 'spawn must cancel the connection deadline')
+    session.bot.emit('connect')
+    assert.equal(session.noSpawnTimer, null, 'late connect events must not arm an online bot timeout')
+    await new Promise(resolve => setTimeout(resolve, 1600))
+    assert.equal(session.state, 'online', 'a spawned bot must survive past its connection deadline')
+  } finally {
+    session.destroy()
+    await fake.stop()
+  }
+})
+
 test('settling: a refused connection settles once with a network reason', async () => {
   const port = await freePort()
   const hub = stubHub()

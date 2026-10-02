@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { describeItem, itemShape, windowShape } from '../src/inventory.js'
+import { describeItem, itemShape, windowShape, InventoryMirror } from '../src/inventory.js'
 import { testRegistry } from './helpers.mjs'
 
 const registry = testRegistry('1.21.11')
@@ -87,4 +87,22 @@ test('empty items are null and windows serialize titles', () => {
   assert.equal(shape.title.plain, 'Chest')
   assert.equal(shape.size, 2)
   assert.equal(shape.invStart, 27)
+})
+
+test('cursor-only updates are sent even when no inventory slots change', async () => {
+  const messages = []
+  const mirror = new InventoryMirror({
+    bot: { currentWindow: { id: 7 } }, registry, sessionId: 'main@lobby',
+    sendToSubscribers: msg => messages.push(msg), debounceMs: 1
+  })
+  const cursor = { n: 'stone', c: 4 }
+  mirror.queueCursor(cursor)
+  await new Promise(resolve => setTimeout(resolve, 15))
+  assert.deepEqual(messages, [{ t: 'inv', s: 'main@lobby', window: 7, slots: {}, cursor }])
+  mirror.queueCursor(null)
+  await new Promise(resolve => setTimeout(resolve, 15))
+  assert.equal(messages.at(-1).cursor, null)
+  assert.equal(messages.length, 2)
+  mirror.flush()
+  assert.equal(messages.length, 2, 'flush must not resend a cursor update')
 })

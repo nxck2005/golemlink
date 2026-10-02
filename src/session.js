@@ -215,8 +215,12 @@ export class Session {
   }
 
   armNoSpawnTimer () {
+    if (this.state !== 'connecting' || !this.bot) return
     if (this.noSpawnTimer) clearTimeout(this.noSpawnTimer)
+    const bot = this.bot
     this.noSpawnTimer = setTimeout(() => {
+      this.noSpawnTimer = null
+      if (this.bot !== bot || this.state !== 'connecting') return
       this.settle('error', new Error('timed out after 30 s without spawning'))
     }, this.noSpawnMs)
     this.noSpawnTimer.unref?.()
@@ -407,6 +411,7 @@ export class Session {
 
   handleSpawn (bot) {
     if (this.bot !== bot) return
+    this.clearAttemptTimers()
     this.pendingMsa = null
     this.releaseAuthLock()
     if (this.onlineResetTimer) clearTimeout(this.onlineResetTimer)
@@ -478,6 +483,10 @@ export class Session {
     this.playersTimer.unref?.()
 
     this.setState('online', { reason: null, detail: null })
+    // A client may have subscribed during connecting (including reconnects),
+    // before InventoryMirror existed. Deltas cannot initialize its null player
+    // inventory, so replace the pre-spawn snapshot with the complete state.
+    this.sendToSubscribers(this.snapshot())
     this.sendPlayers()
   }
 
@@ -561,6 +570,7 @@ export class Session {
       food: bot.food ?? null,
       sat: bot.foodSaturation ?? null,
       xpLvl: bot.experience?.level ?? null,
+      xpProgress: bot.experience?.progress ?? null,
       gm: bot.game?.gameMode ?? null,
       quick: bot.quickBarSlot,
       actionbar: this.actionbar,

@@ -48,6 +48,7 @@ function makeCell ({ item, windowId, slot, extraClass = '' }) {
   const cell = document.createElement('button')
   cell.type = 'button'
   cell.className = `cell ${extraClass}`.trim()
+  cell.setAttribute('aria-label', item ? itemLabel(item) : `Empty slot ${slot}`)
   if (item) {
     cell.appendChild(itemTile(item))
     cell.title = itemLabel(item)
@@ -56,16 +57,24 @@ function makeCell ({ item, windowId, slot, extraClass = '' }) {
   let longPressed = false
   let moved = false
   let start = null
+  let pointerId = null
+  let pointerButton = 0
   cell.addEventListener('pointerdown', event => {
-    event.preventDefault()
+    if (pointerId !== null || (event.button !== 0 && event.button !== 2)) return
+    pointerId = event.pointerId
+    pointerButton = event.button
     cell.setPointerCapture(event.pointerId)
     longPressed = false
     moved = false
     start = { x: event.clientX, y: event.clientY }
+    // A real mouse right-click is an inventory click even in details mode.
+    // Only the primary button/touch needs the long-press fallback.
+    if (pointerButton === 2) return
     pressTimer = setTimeout(() => {
+      if (!cell.isConnected) return
       longPressed = true
       if (detailsMode) openDetail(item, { windowId, slot })
-      else if (item) sendClick({ windowId, slot }, 1, 0)
+      else if (item || store.cursor || windowId !== 0) sendClick({ windowId, slot }, 1, 0)
     }, 500)
   })
   cell.addEventListener('pointermove', event => {
@@ -76,15 +85,32 @@ function makeCell ({ item, windowId, slot, extraClass = '' }) {
     }
   })
   cell.addEventListener('pointerup', event => {
+    if (event.pointerId !== pointerId) return
+    pointerId = null
+    start = null
     clearTimeout(pressTimer)
     if (moved || longPressed) return
+    if (pointerButton === 2) {
+      sendClick({ windowId, slot }, 1, 0)
+      return
+    }
     if (detailsMode) {
       if (item) openDetail(item, { windowId, slot })
       return
     }
-    if (item || windowId !== 0) sendClick({ windowId, slot }, 0, 0)
+    if (item || store.cursor || windowId !== 0) sendClick({ windowId, slot }, 0, 0)
   })
-  cell.addEventListener('pointercancel', () => clearTimeout(pressTimer))
+  cell.addEventListener('pointercancel', () => {
+    clearTimeout(pressTimer)
+    start = null
+    moved = true
+    pointerId = null
+  })
+  cell.addEventListener('click', event => {
+    if (event.detail !== 0) return // pointer clicks are handled above
+    if (detailsMode) openDetail(item, { windowId, slot })
+    else if (item || store.cursor || windowId !== 0) sendClick({ windowId, slot }, 0, 0)
+  })
   cell.addEventListener('contextmenu', event => event.preventDefault())
   return cell
 }
@@ -126,6 +152,9 @@ function renderQuickSlot () {
 
 export function renderBag () {
   if (!openWindowBox) return
+  const hasInventory = Boolean(store.inventory || store.window)
+  document.getElementById('bag-empty').classList.toggle('hidden', hasInventory)
+  document.getElementById('details-toggle').disabled = !hasInventory
   const hasWindow = Boolean(store.window)
   openWindowBox.classList.toggle('hidden', !hasWindow)
   closeWindowButton.classList.toggle('hidden', !hasWindow)
@@ -184,7 +213,20 @@ function openDetail (item, { windowId, slot }) {
   }
   const actions = document.createElement('div')
   actions.className = 'actions'
-  if (item) {
+  const containerSlot = windowId !== 0 && windowId === store.window?.id && slot < store.window.invStart
+  const hint = document.createElement('p')
+  hint.className = 'small muted'
+  hint.textContent = containerSlot
+    ? 'Server menus use inventory clicks. Choose Left click or Right click to select this entry.'
+    : 'Left / right click moves inventory items. Use held item activates an item from your hotbar.'
+  body.appendChild(hint)
+  for (const [label, button] of [['Left click', 0], ['Right click', 1]]) {
+    actions.appendChild(actionButton(label, () => {
+      sendClick({ windowId, slot }, button, 0)
+      closeSheet()
+    }))
+  }
+  if (item && !containerSlot) {
     const inHotbar = [36, 37, 38, 39, 40, 41, 42, 43, 44].find(slotIndex => {
       const candidate = playerItem(slotIndex)
       return candidate && candidate.n === item.n && candidate.cn === item.cn
@@ -201,20 +243,24 @@ function openDetail (item, { windowId, slot }) {
       send({ t: 'drop', s: store.sessionId, slot, all: true })
       closeSheet()
     }))
-    actions.appendChild(actionButton('Use', () => {
-      if (inHotbar !== undefined) send({ t: 'hotbar', s: store.sessionId, i: inHotbar - 36 })
-      setTimeout(() => send({ t: 'use', s: store.sessionId }), 120)
+    actions.appendChild(actionButton('Use held item', () => {
+      const sessionId = store.sessionId
+      if (inHotbar !== undefined) send({ t: 'hotbar', s: sessionId, i: inHotbar - 36 })
+      setTimeout(() => {
+        if (store.sessionId === sessionId) send({ t: 'use', s: sessionId })
+      }, 120)
       closeSheet()
     }, inHotbar === undefined))
-    if (windowId !== undefined && windowId !== 0 && windowId === store.window?.id) {
-      actions.appendChild(actionButton('Shift-click', () => {
-        sendClick({ windowId, slot }, 0, 1)
-        closeSheet()
-      }))
-    }
+  }
+  if (item && windowId !== undefined && windowId !== 0 && windowId === store.window?.id) {
+    actions.appendChild(actionButton('Shift-click', () => {
+      sendClick({ windowId, slot }, 0, 1)
+      closeSheet()
+    }))
   }
   body.appendChild(actions)
   document.getElementById('sheet').classList.remove('hidden')
+  document.getElementById('sheet-close').focus()
 }
 
 export function closeSheet () {
@@ -235,6 +281,7 @@ export function initBag () {
   document.getElementById('details-toggle').addEventListener('click', event => {
     detailsMode = !detailsMode
     event.currentTarget.classList.toggle('active', detailsMode)
+    event.currentTarget.setAttribute('aria-pressed', String(detailsMode))
     event.currentTarget.textContent = detailsMode ? 'ⓘ Details mode on' : 'ⓘ Details mode'
   })
   closeWindowButton.addEventListener('click', () => send({ t: 'closeWindow', s: store.sessionId }))
@@ -243,6 +290,9 @@ export function initBag () {
   store.on('snapshot', renderBag)
   store.on('inv', renderBag)
   store.on('window', renderBag)
+  store.on('window', closeSheet)
   store.on('session', renderBag)
+  store.on('connection', connected => { if (!connected) closeSheet() })
   store.on('status', renderQuickSlot)
+  renderBag()
 }

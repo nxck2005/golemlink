@@ -13,7 +13,9 @@
   "scripts": {
     "start": "node src/main.js",
     "test": "node scripts/check-no-native.mjs && node --test",
-    "e2e": "node scripts/e2e.mjs"
+    "e2e": "node scripts/e2e.mjs",
+    "test:ui": "node scripts/ui-smoke.mjs",
+    "test:ui:movement": "node scripts/ui-movement.mjs"
   },
   "dependencies": {
     "mineflayer": "4.39.0",

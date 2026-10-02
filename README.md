@@ -78,11 +78,11 @@ fragment. If you start the daemon in the background, get the URL with
 ### First session
 
 1. Open the printed URL in the phone's browser.
-2. **More → Accounts → + Add account.** Pick `offline` for an offline-mode
+2. **Setup → Accounts → + Add account.** Pick `offline` for an offline-mode
    server, or `microsoft` for a premium account (the username is the email).
-3. **More → Servers → + Add server.** Give it an id, host and port; leave
+3. **Setup → Servers → + Add server.** Give it an id, host and port; leave
    `version` on `auto`.
-4. **More → Sessions**: choose the account and server, then **Start**.
+4. **Setup → Sessions**: choose the account and server, then **Start session**.
 5. For a Microsoft account, a banner shows the device code and link; sign in
    there and the session finishes connecting.
 6. Switch to **Chat** or **Move**. The session picker in the top bar switches
@@ -121,7 +121,7 @@ chmod +x ~/.shortcuts/tasks/golemlink ~/.shortcuts/tasks/golemlink-stop
 ## Configuration
 
 Everything lives in `~/.golemlink` (mode 0700). `config.json` is edited by the
-More tab in the UI, or by hand:
+Setup tab in the UI, or by hand:
 
 ```json
 {
@@ -189,7 +189,7 @@ ssh -L 8765:127.0.0.1:8765 <phone>
 ## Performance
 
 With one online session the daemon targets an event-loop delay p99 under
-20 ms (measured with `perf_hooks.monitorEventLoopDelay`, shown in the More tab;
+20 ms (measured with `perf_hooks.monitorEventLoopDelay`, shown in the Setup tab;
 a warning is logged if it stays above 50 ms). `status` is sent at most 5 Hz,
 players at 2 Hz, and map tiles in batches of at most 32. RSS is logged every
 5 minutes.
@@ -199,6 +199,8 @@ players at 2 Hz, and map tiles in batches of at most 32. RSS is logged every
 ```sh
 npm test        # native-dependency check + node:test unit/integration tests
 npm run e2e     # tier 1 fake server (required) + tier 2 vanilla server (optional)
+npm run test:ui # optional: requires Playwright and its Chromium browser
+npm run test:ui:movement # optional: real joystick-to-Minecraft integration
 ```
 
 `npm run e2e` drives the daemon only through its WebSocket API. Tier 2 needs
@@ -209,6 +211,18 @@ Java 21+ and Mojang's servers; when either is missing it prints
 See `docs/PROTOCOL.md` for the wire protocol, `docs/DECISIONS.md` for choices
 made where the spec was open, and `docs/REPORT.md` for the implementation
 report.
+
+The browser smoke test checks setup, chat search, status bars, inventory clicks,
+session isolation, server-menu left/right clicks (mouse, long press, and details
+actions), and phone portrait/landscape and desktop layouts. Playwright is not a
+daemon dependency: install it separately and set `UI_PLAYWRIGHT_MODULE` to its
+absolute `index.mjs` path if it is not available in this project's dependencies.
+Set `UI_SCREENSHOTS` to a directory to save screenshots of each tab.
+
+The movement browser test uses a disposable offline Minecraft test server and
+the real daemon modules. It checks walking speed, stationary-drag heartbeats,
+direction changes, the dead zone, release outside the joystick, lost capture,
+snapshot resync, blur, tab switches, touch cancellation, and two-finger jump.
 
 ## License
 
