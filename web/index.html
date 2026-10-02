@@ -46,7 +46,7 @@
   </section>
 
   <section id="tab-move" class="tab">
-    <div class="page-heading"><div><span class="eyebrow">EXPLORE YOUR WORLD</span><h1>Movement</h1><p>Drag to move or look. Tap the map to choose a destination.</p></div></div>
+    <div class="page-heading"><div><span class="eyebrow">EXPLORE YOUR WORLD</span><h1>Movement</h1><p>Hold W/A/S/D to move, Space to jump. Drag to look. Tap the map to choose a destination.</p></div></div>
     <div id="move-top">
       <div id="map-wrap">
         <canvas id="map" width="300" height="300" aria-label="Nearby terrain and players"></canvas>
@@ -78,9 +78,14 @@
       </div>
     </div>
     <div id="move-bottom">
-      <div class="joystick-wrap"><div id="joystick" aria-label="Drag joystick to move"><div id="stick"></div></div><span class="small muted">Drag to move</span></div>
+      <div class="movement-pad"><div id="wasd-pad" role="group" aria-label="Hold to move">
+        <button id="move-forward" data-control="forward" type="button" aria-label="Move forward (W)" aria-pressed="false">W</button>
+        <button id="move-left" data-control="left" type="button" aria-label="Move left (A)" aria-pressed="false">A</button>
+        <button id="move-back" data-control="back" type="button" aria-label="Move backward (S)" aria-pressed="false">S</button>
+        <button id="move-right" data-control="right" type="button" aria-label="Move right (D)" aria-pressed="false">D</button>
+      </div><span class="small muted">Hold keys or buttons · Space to jump</span></div>
       <div id="actions">
-        <button id="btn-jump" class="btn big" type="button">Jump</button>
+        <button id="btn-jump" class="btn big" data-control="jump" type="button" aria-pressed="false">Jump</button>
         <button id="btn-sprint" class="btn toggle" type="button">Sprint</button>
         <button id="btn-sneak" class="btn toggle" type="button">Sneak</button>
         <button id="btn-interact" class="btn" type="button">Interact</button>

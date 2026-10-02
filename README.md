@@ -16,7 +16,8 @@ run inside **Termux on Android**, but runs unchanged on any Linux box.
   crashing or getting kicked never affects the others or the daemon.
 - **Chat:** colored chat with a searchable backlog, chat and `/commands`,
   command tab-complete, per-session JSONL logs.
-- **Movement:** virtual joystick, jump/sprint/sneak, drag-to-look and ±90°
+- **Movement:** keyboard WASD and holdable touch buttons, Space to jump,
+  sprint/sneak, drag-to-look and ±90°
   buttons, step N blocks, tap-the-map go-to, interact/use, anti-AFK.
 - **Inventory:** player inventory, hotbar and any open container window with
   desktop click semantics (tap = left click, long-press = right click), cursor
@@ -200,7 +201,7 @@ players at 2 Hz, and map tiles in batches of at most 32. RSS is logged every
 npm test        # native-dependency check + node:test unit/integration tests
 npm run e2e     # tier 1 fake server (required) + tier 2 vanilla server (optional)
 npm run test:ui # optional: requires Playwright and its Chromium browser
-npm run test:ui:movement # optional: real joystick-to-Minecraft integration
+npm run test:ui:movement # optional: real keyboard/touch-to-Minecraft integration
 ```
 
 `npm run e2e` drives the daemon only through its WebSocket API. Tier 2 needs
@@ -219,10 +220,15 @@ daemon dependency: install it separately and set `UI_PLAYWRIGHT_MODULE` to its
 absolute `index.mjs` path if it is not available in this project's dependencies.
 Set `UI_SCREENSHOTS` to a directory to save screenshots of each tab.
 
+On the **Move** tab, hold **W/A/S/D** on your keyboard (forward/left/back/right)
+and **Space** to jump. You can also hold the on-screen W/A/S/D buttons. Keys
+never control the bot while typing in a field or viewing another tab, and
+movement is released when you leave the tab or window.
+
 The movement browser test uses a disposable offline Minecraft test server and
-the real daemon modules. It checks walking speed, stationary-drag heartbeats,
-direction changes, the dead zone, release outside the joystick, lost capture,
-snapshot resync, blur, tab switches, touch cancellation, and two-finger jump.
+the real daemon modules. It checks keyboard movement, typing safety, walking
+speed, hold heartbeats, diagonal movement, button/key combinations, release,
+lost capture, snapshot resync, blur, tab switches, and multi-touch jump.
 
 ## License
 

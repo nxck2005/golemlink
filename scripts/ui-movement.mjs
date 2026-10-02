@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Real browser -> WebSocket -> daemon movement -> Mineflayer -> Minecraft
+// Real keyboard/touch -> browser -> WebSocket -> Mineflayer -> Minecraft
 // protocol integration. Uses only a disposable offline test server/account.
 import assert from 'node:assert/strict'
 import http from 'node:http'
@@ -59,17 +59,21 @@ try {
     const session = sessions.get('ui@test')
     const ctl = key => session.movement.ctlState()[key]
     const released = () => ['forward', 'back', 'left', 'right', 'jump'].every(key => !ctl(key))
-    const box = await page.locator('#joystick').boundingBox()
+    const box = await page.locator('#move-forward').boundingBox()
     const x = box.x + box.width / 2
     const y = box.y + box.height / 2
-    const radius = box.width / 2 - 32
     const point = (id, px, py) => ({ id, x: px, y: py })
 
-    const startDrag = async () => {
+    const startButton = async () => {
       await page.mouse.move(x, y)
       await page.mouse.down()
-      await page.mouse.move(x, y - radius)
-      await until(() => ctl('forward'), 'drag did not press forward')
+      await page.mouse.move(x + 1, y) // Activate pending pointer capture.
+      await until(() => ctl('forward'), 'W button did not press forward')
+    }
+    const startKey = async () => {
+      await page.evaluate(() => document.activeElement.blur())
+      await page.keyboard.down('w')
+      await until(() => ctl('forward'), 'W key did not press forward')
     }
     const assertStopped = async () => {
       await until(released, 'movement keys stuck after release')
@@ -81,57 +85,103 @@ try {
       await sleep(500)
       const end = fake.position()
       assert.ok(Math.hypot(end.x - start.x, end.z - start.z) < 0.1, 'bot keeps moving after release')
-      assert.equal(session.movement.gotoState, null, 'joystick must not start a map goto')
+      assert.equal(session.movement.gotoState, null, 'WASD must not start a map goto')
     }
 
     const before = { ...fake.position() }
     const yaw = session.bot.entity.yaw
-    await startDrag()
-    await sleep(1200) // No pointermove: heartbeats must keep a stationary drag alive.
+    await startKey()
+    await sleep(1200) // Hold heartbeats must keep keyboard movement alive.
     const after = fake.position()
     const distance = Math.hypot(after.x - before.x, after.z - before.z)
     assert.ok(distance > 2 && distance < 8, `unexpected walk distance: ${distance}`)
     const forwardDistance = (after.x - before.x) * -Math.sin(yaw) + (after.z - before.z) * -Math.cos(yaw)
-    assert.ok(forwardDistance > 2, 'up on the joystick must move in the direction the bot faces')
-    assert.ok(ctl('forward'), 'stationary drag expired despite heartbeats')
-    await page.mouse.move(x + radius, y)
-    await until(() => ctl('right') && !ctl('forward') && !ctl('left') && !ctl('back'), 'changing direction left old keys pressed')
-    await page.mouse.move(x, y)
-    await assertStopped() // Dead zone must stop movement while still holding.
-    await page.mouse.move(x, y - radius)
-    await until(() => ctl('forward'), 'drag could not resume from the dead zone')
-    await page.mouse.move(x, 1) // Release well outside the joystick.
+    assert.ok(forwardDistance > 2, 'W must move in the direction the bot faces')
+    assert.ok(ctl('forward'), 'held W expired despite heartbeats')
+    await page.keyboard.down('d')
+    await until(() => ctl('forward') && ctl('right'), 'W+D must allow diagonal movement')
+    await page.keyboard.up('w')
+    await until(() => !ctl('forward') && ctl('right'), 'releasing W must keep D pressed')
+    await page.keyboard.up('d')
+    await assertStopped()
+    for (const [key, control] of [['a', 'left'], ['s', 'back']]) {
+      await page.keyboard.down(key)
+      await until(() => ctl(control), `${key} did not move`)
+      await page.keyboard.up(key)
+      await assertStopped()
+    }
+    await page.keyboard.down('Space')
+    await until(() => ctl('jump'), 'Space did not jump')
+    await page.locator('#move-forward').focus()
+    await page.keyboard.up('Space')
+    await assertStopped()
+    await page.keyboard.down('Enter')
+    await until(() => ctl('forward'), 'a focused movement button must work with Enter')
+    await page.keyboard.up('Enter')
+    await assertStopped()
+
+    // Releasing one source must not cancel another source for the same key.
+    await startKey()
+    await startButton()
+    await page.mouse.up()
+    assert.ok(ctl('forward'), 'releasing a W button must not release the keyboard W')
+    await page.keyboard.up('w')
+    await assertStopped()
+    await startButton()
+    await page.keyboard.down('w')
+    await page.keyboard.up('w')
+    assert.ok(ctl('forward'), 'releasing keyboard W must not release a held W button')
+    await page.mouse.move(x, 1) // Release well outside the button.
     await page.mouse.up()
     await assertStopped()
 
-    await startDrag()
-    await page.locator('#joystick').evaluate(el => el.releasePointerCapture(1))
+    await startButton()
+    await page.locator('#move-forward').evaluate(el => el.releasePointerCapture(1))
     await assertStopped()
     await page.mouse.up()
 
-    await startDrag()
+    await startKey()
     hub.sendToSubscribers(session.id, session.snapshot())
     await assertStopped() // Resync must release daemon keys, not just local state.
-    await page.mouse.up()
+    await page.keyboard.down('w') // OS key repeat must not resume a cancelled hold.
+    assert.ok(released())
+    await page.keyboard.up('w')
 
-    await startDrag()
+    await startKey()
     await page.locator('[data-tab="chat"]').evaluate(el => el.click())
     await assertStopped()
-    await page.mouse.up()
+    await page.keyboard.up('w')
+    await page.locator('#chat-input').fill('')
+    await page.locator('#chat-input').pressSequentially('wasd')
+    assert.ok(released(), 'typing chat must never move the bot')
+    assert.equal(await page.locator('#chat-input').inputValue(), 'wasd')
     await page.locator('[data-tab="move"]').click()
 
-    await startDrag()
+    await startKey()
     await page.evaluate(() => window.dispatchEvent(new Event('blur')))
     await assertStopped()
-    await page.mouse.up()
+    await page.keyboard.up('w')
 
-    // Real touch pointers: the joystick's first finger must not block a
+    await startKey()
+    await page.evaluate(() => {
+      const field = document.createElement('input')
+      field.id = 'test-typing-field'
+      document.getElementById('tab-move').appendChild(field)
+      field.focus()
+    })
+    await assertStopped()
+    await page.keyboard.up('w')
+    await page.keyboard.type('wasd ')
+    assert.ok(released(), 'typing on the Move tab must not move or jump')
+    await page.locator('#test-typing-field').evaluate(el => el.remove())
+
+    // Real touch pointers: the W button's first finger must not block a
     // second finger on Jump. Releasing/cancelling must clear both controls.
     const cdp = await context.newCDPSession(page)
-    const finger = point(1, x, y - radius)
+    const finger = point(1, x, y)
     const touch = (type, points) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points })
     await touch('touchStart', [finger])
-    await until(() => ctl('forward'), 'touch joystick did not move')
+    await until(() => ctl('forward'), 'touch W button did not move')
     const jumpBox = await page.locator('#btn-jump').boundingBox()
     const thumb = point(2, jumpBox.x + jumpBox.width / 2, jumpBox.y + jumpBox.height / 2)
     await touch('touchStart', [finger, thumb])
@@ -139,12 +189,14 @@ try {
     await touch('touchEnd', [])
     await assertStopped()
     await touch('touchStart', [finger])
-    await until(() => ctl('forward'), 'second touch drag failed')
+    await until(() => ctl('forward'), 'second touch hold failed')
     await touch('touchCancel', [])
     await assertStopped()
 
-    console.log(`ok real joystick: ${viewport.width}px, ${distance.toFixed(2)} blocks walked; direction/dead zone/release/capture/resync/blur/tab/touch/jump checked`)
+    await startKey()
     await context.close()
+    await assertStopped()
+    console.log(`ok real WASD: ${viewport.width}px, ${distance.toFixed(2)} blocks walked; keyboard/diagonal/typing/mixed inputs/release/capture/resync/blur/tab/touch/jump/disconnect checked`)
     session.stop()
     await sleep(300)
   }

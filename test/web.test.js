@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ensureContrast, itemCode, materialTint } from '../web/items.js'
+import { movementKey, isTypingTarget } from '../web/keyboard.js'
 
 const webDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'web')
 
@@ -45,7 +46,7 @@ test('dark chat colors are lightened to at least 4.5:1 contrast', () => {
 })
 
 test('the UI has no inline scripts, handlers or external resources (CSP)', () => {
-  const files = ['index.html', 'app.js', 'store.js', 'net.js', 'chat.js', 'move.js', 'bag.js', 'more.js', 'items.js']
+  const files = ['index.html', 'app.js', 'store.js', 'net.js', 'chat.js', 'move.js', 'keyboard.js', 'bag.js', 'more.js', 'items.js']
   for (const file of files) {
     const text = fs.readFileSync(path.join(webDir, file), 'utf8')
     assert.ok(!/https?:\/\/(?!127\.0\.0\.1|localhost)/.test(text), `${file} references an external URL`)
@@ -71,4 +72,19 @@ test('every element id used by the UI exists in index.html', () => {
 test('itemTile renders without innerHTML', () => {
   const text = fs.readFileSync(path.join(webDir, 'items.js'), 'utf8')
   assert.ok(!text.includes('innerHTML'))
+})
+
+test('WASD and Space map to movement, but shortcuts and IME composition do not', () => {
+  for (const [code, control] of Object.entries({ KeyW: 'forward', KeyA: 'left', KeyS: 'back', KeyD: 'right', Space: 'jump' })) {
+    assert.equal(movementKey({ code }), control)
+    for (const flag of ['ctrlKey', 'metaKey', 'altKey', 'isComposing']) assert.equal(movementKey({ code, [flag]: true }), null)
+  }
+  assert.equal(movementKey({ code: 'KeyE' }), null)
+})
+
+test('typing targets include fields and editable descendants', () => {
+  assert.equal(isTypingTarget({ isContentEditable: true }), true)
+  assert.equal(isTypingTarget({ closest: () => ({ tagName: 'INPUT' }) }), true)
+  assert.equal(isTypingTarget({ closest: () => null }), false)
+  assert.equal(isTypingTarget(null), false)
 })

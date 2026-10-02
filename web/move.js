@@ -1,10 +1,12 @@
 import { store } from './store.js'
 import { send } from './net.js'
+import { movementKey, isTypingTarget } from './keyboard.js'
 
 const MOMENTARY = ['forward', 'back', 'left', 'right', 'jump']
 const controls = Object.fromEntries(MOMENTARY.map(k => [k, false]))
-let joystickPointer = null
-let jumpPointer = null
+const inputSources = new Map(MOMENTARY.map(key => [key, new Set()]))
+const heldPointers = new Map()
+const heldKeys = new Map()
 let holdTimer = null
 let lookPointer = null
 let lastLookPoint = { x: 0, y: 0 }
@@ -28,7 +30,85 @@ export function sendControl (k, on) {
   const sent = send({ t: 'ctl', s: activeSession(), k, on })
   if (on && !sent) return
   controls[k] = on
+  for (const button of document.querySelectorAll(`[data-control="${k}"]`)) {
+    button.classList.toggle('active', on)
+    button.setAttribute('aria-pressed', String(on))
+  }
   updateHeartbeat()
+}
+
+function setInput (control, source, on) {
+  const sources = inputSources.get(control)
+  if (on) sources.add(source)
+  else sources.delete(source)
+  sendControl(control, sources.size > 0)
+}
+
+function canMove () {
+  return store.connected && store.session()?.state === 'online' &&
+    document.getElementById('tab-move').classList.contains('active') &&
+    document.getElementById('sheet').classList.contains('hidden')
+}
+
+function bindHoldButton (button, control) {
+  button.addEventListener('contextmenu', event => event.preventDefault())
+  button.addEventListener('pointerdown', event => {
+    if (event.button !== 0 || !canMove()) return
+    event.preventDefault()
+    heldPointers.set(event.pointerId, { button, control })
+    button.setPointerCapture(event.pointerId)
+    setInput(control, `pointer:${event.pointerId}`, true)
+  })
+  const release = event => {
+    const held = heldPointers.get(event.pointerId)
+    if (!held || held.button !== button) return
+    heldPointers.delete(event.pointerId)
+    setInput(control, `pointer:${event.pointerId}`, false)
+  }
+  button.addEventListener('pointerup', release)
+  button.addEventListener('pointercancel', release)
+  button.addEventListener('lostpointercapture', release)
+  button.addEventListener('pointermove', event => {
+    if (event.pointerType === 'mouse' && !(event.buttons & 1)) release(event)
+  })
+  button.addEventListener('keydown', event => {
+    if (!['Space', 'Enter'].includes(event.code)) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (!event.repeat && canMove()) setInput(control, `button:${button.id}:${event.code}`, true)
+  })
+  button.addEventListener('keyup', event => {
+    if (!['Space', 'Enter'].includes(event.code)) return
+    event.preventDefault()
+    event.stopPropagation()
+    setInput(control, `button:${button.id}:${event.code}`, false)
+  })
+  button.addEventListener('blur', () => {
+    for (const code of ['Space', 'Enter']) setInput(control, `button:${button.id}:${code}`, false)
+  })
+}
+
+function initKeyboard () {
+  document.addEventListener('keydown', event => {
+    const control = movementKey(event)
+    if (!control || isTypingTarget(event.target) || !canMove()) return
+    if (event.code === 'Space' && event.target.closest?.('button, a')) return
+    event.preventDefault()
+    // Do not resume from an OS repeat after blur, stop, or resync.
+    if (event.repeat) return
+    heldKeys.set(event.code, control)
+    setInput(control, `key:${event.code}`, true)
+  })
+  document.addEventListener('keyup', event => {
+    const control = heldKeys.get(event.code)
+    if (!control) return
+    heldKeys.delete(event.code)
+    setInput(control, `key:${event.code}`, false)
+    event.preventDefault()
+  }, true) // Release held keys even if focus moved to a button handling keyup.
+  document.addEventListener('focusin', event => {
+    if (isTypingTarget(event.target)) releaseAllControls(true)
+  })
 }
 
 function updateHeartbeat () {
@@ -42,8 +122,11 @@ function updateHeartbeat () {
 }
 
 export function releaseAllControls (notify = false) {
-  const captured = [['joystick', joystickPointer], ['look-pad', lookPointer], ['btn-jump', jumpPointer]]
-  jumpPointer = null
+  const captured = [...heldPointers].map(([pointer, held]) => [held.button, pointer])
+  captured.push([document.getElementById('look-pad'), lookPointer])
+  heldPointers.clear()
+  heldKeys.clear()
+  for (const sources of inputSources.values()) sources.clear()
   pendingLook = null
   dragLook = null
   lookPointer = null
@@ -59,43 +142,13 @@ export function releaseAllControls (notify = false) {
     clearInterval(holdTimer)
     holdTimer = null
   }
-  resetStick()
-  for (const [id, pointer] of captured) {
-    const element = document.getElementById(id)
+  for (const button of document.querySelectorAll('[data-control]')) {
+    button.classList.remove('active')
+    button.setAttribute('aria-pressed', 'false')
+  }
+  for (const [element, pointer] of captured) {
     if (pointer !== null && element?.hasPointerCapture(pointer)) element.releasePointerCapture(pointer)
   }
-}
-
-function resetStick () {
-  const stick = document.getElementById('stick')
-  if (stick) {
-    stick.style.left = '50%'
-    stick.style.top = '50%'
-  }
-  joystickPointer = null
-}
-
-function moveStick (event) {
-  const joystick = document.getElementById('joystick')
-  const stick = document.getElementById('stick')
-  const rect = joystick.getBoundingClientRect()
-  const cx = rect.left + rect.width / 2
-  const cy = rect.top + rect.height / 2
-  const radius = Math.max(1, (rect.width - stick.getBoundingClientRect().width) / 2)
-  let dx = (event.clientX - cx) / radius
-  let dy = (event.clientY - cy) / radius
-  const length = Math.hypot(dx, dy)
-  if (length > 1) {
-    dx /= length
-    dy /= length
-  }
-  stick.style.left = `${50 + dx * (radius / rect.width) * 100}%`
-  stick.style.top = `${50 + dy * (radius / rect.height) * 100}%`
-  const dead = 0.3
-  sendControl('left', dx < -dead)
-  sendControl('right', dx > dead)
-  sendControl('forward', dy < -dead)
-  sendControl('back', dy > dead)
 }
 
 function applyLook () {
@@ -117,34 +170,8 @@ export function initMove () {
   canvas = document.getElementById('map')
   ctx = canvas.getContext('2d')
 
-  // joystick
-  const joystick = document.getElementById('joystick')
-  joystick.addEventListener('contextmenu', e => e.preventDefault())
-  joystick.addEventListener('pointerdown', event => {
-    if (event.button !== 0 || joystickPointer !== null || !store.connected || store.session()?.state !== 'online') return
-    event.preventDefault()
-    joystickPointer = event.pointerId
-    joystick.setPointerCapture(event.pointerId)
-    moveStick(event)
-  })
-  joystick.addEventListener('pointermove', event => {
-    if (event.pointerType === 'mouse' && !(event.buttons & 1)) {
-      endStick(event)
-      return
-    }
-    if (event.pointerId === joystickPointer) moveStick(event)
-  })
-  const endStick = event => {
-    if (event.pointerId !== joystickPointer) return
-    resetStick()
-    sendControl('left', false)
-    sendControl('right', false)
-    sendControl('forward', false)
-    sendControl('back', false)
-  }
-  joystick.addEventListener('pointerup', endStick)
-  joystick.addEventListener('pointercancel', endStick)
-  joystick.addEventListener('lostpointercapture', endStick)
+  for (const button of document.querySelectorAll('[data-control]')) bindHoldButton(button, button.dataset.control)
+  initKeyboard()
 
   // look pad
   const pad = document.getElementById('look-pad')
@@ -191,35 +218,6 @@ export function initMove () {
   })
 
   // controls
-  const jump = document.getElementById('btn-jump')
-  const press = event => {
-    if (event.button !== 0 || jumpPointer !== null || !store.connected || store.session()?.state !== 'online') return
-    event.preventDefault()
-    jumpPointer = event.pointerId
-    jump.setPointerCapture(event.pointerId)
-    sendControl('jump', true)
-  }
-  const release = event => {
-    if (event.pointerId !== jumpPointer) return
-    jumpPointer = null
-    sendControl('jump', false)
-  }
-  jump.addEventListener('pointerdown', press)
-  jump.addEventListener('pointerup', release)
-  jump.addEventListener('pointercancel', release)
-  jump.addEventListener('lostpointercapture', release)
-  jump.addEventListener('keydown', event => {
-    if (![' ', 'Enter'].includes(event.key)) return
-    event.preventDefault()
-    sendControl('jump', true)
-  })
-  jump.addEventListener('keyup', event => {
-    if (![' ', 'Enter'].includes(event.key)) return
-    event.preventDefault()
-    sendControl('jump', false)
-  })
-  jump.addEventListener('blur', () => sendControl('jump', false))
-
   document.getElementById('btn-sprint').addEventListener('click', () => {
     const on = Boolean(store.status?.ctl?.sprint)
     send({ t: 'ctl', s: activeSession(), k: 'sprint', on: !on })
@@ -305,7 +303,7 @@ export function initMove () {
 function updateMoveStatus () {
   const status = store.status
   const online = store.connected && store.session()?.state === 'online'
-  for (const button of document.querySelectorAll('#actions button, #step-row button, #turn-left, #turn-right, #goto-go')) button.disabled = !online
+  for (const button of document.querySelectorAll('[data-control], #actions button, #step-row button, #turn-left, #turn-right, #goto-go')) button.disabled = !online
   document.getElementById('btn-sprint').classList.toggle('active', Boolean(status?.ctl?.sprint))
   document.getElementById('btn-sneak').classList.toggle('active', Boolean(status?.ctl?.sneak))
   const target = status?.target

@@ -172,16 +172,15 @@ h1 { margin: 5px 0 6px; font-size: 28px; letter-spacing: -1px; }
 .label { color: var(--muted); font-size: 12px; align-self: center; }
 #step-row .label { width: 100%; }
 #move-bottom { display: flex; align-items: stretch; gap: 8px; height: 190px; }
-#joystick {
-  width: 170px; height: 170px; flex: 0 0 auto; align-self: center;
-  border-radius: 50%; background: var(--surface); border: 1px solid var(--border);
-  position: relative; touch-action: none;
-}
-.joystick-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
-#stick {
-  position: absolute; left: 50%; top: 50%; width: 64px; height: 64px; margin: -32px 0 0 -32px;
-  border-radius: 50%; background: var(--raised); border: 2px solid var(--muted);
-}
+.movement-pad { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
+.movement-pad > span { max-width: 170px; text-align: center; line-height: 1.5; }
+#wasd-pad { display: grid; grid-template-columns: repeat(3, 48px); grid-template-rows: repeat(2, 48px); gap: 6px; }
+#wasd-pad button { padding: 0; font-family: ui-monospace, monospace; font-size: 18px; font-weight: 700; touch-action: none; }
+#move-forward { grid-column: 2; }
+#move-left { grid-column: 1; grid-row: 2; }
+#move-back { grid-column: 2; grid-row: 2; }
+#move-right { grid-column: 3; grid-row: 2; }
+[data-control].active { color: var(--accent); background: #73e2ad20; border-color: var(--accent); }
 #actions { flex: 1; display: grid; grid-template-columns: repeat(3, 1fr); grid-auto-rows: 1fr; gap: 8px; }
 #actions .danger { background: #3b1215; border-color: var(--danger); color: var(--danger); font-weight: 700; }
 #actions .big { grid-row: span 2; font-size: 18px; }
@@ -270,13 +269,13 @@ summary { cursor: pointer; color: var(--muted); padding: 8px 0; }
 }
 
 /* controls: no context menu / selection */
-#joystick, #look-pad, #map, .cell, #actions button {
+#wasd-pad button, #look-pad, #map, .cell, #actions button {
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
   touch-action: none;
 }
-#joystick, #look-pad, #map { touch-action: none; }
+#wasd-pad button, #look-pad, #map { touch-action: none; }
 .grid .cell { touch-action: pan-y; }
 
 #tabs { display: flex; flex-shrink: 0; border-top: 1px solid var(--border); background: var(--surface); padding: 8px 12px; gap: 8px; }
@@ -322,8 +321,9 @@ summary { cursor: pointer; color: var(--muted); padding: 8px 0; }
   #move-side { width: 100%; max-width: none; }
   #look-pad { min-height: 100px; }
   #move-bottom { height: auto; flex-shrink: 0; align-items: center; padding-top: 12px; border-top: 1px solid var(--border); }
-  #joystick { width: 128px; height: 128px; }
-  #stick { width: 52px; height: 52px; margin: -26px 0 0 -26px; }
+  #wasd-pad { grid-template-columns: repeat(3, 40px); gap: 4px; }
+  #wasd-pad button { min-width: 40px; }
+  .movement-pad > span { max-width: 128px; }
   #actions { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 48px; }
   #actions .big { grid-row: auto; font-size: 15px; }
   #actions button { padding: 0 6px; font-size: 13px; min-width: 0; }
@@ -343,8 +343,7 @@ summary { cursor: pointer; color: var(--muted); padding: 8px 0; }
   #tab-move { overflow: hidden; gap: 8px; padding-bottom: 8px; }
   #move-top { flex: 1; min-height: 0; overflow-y: auto; }
   #move-bottom { height: 108px; flex: none; align-items: center; }
-  #joystick { width: 96px; height: 96px; }
-  .joystick-wrap > span { display: none; }
+  .movement-pad > span { display: none; }
   #actions { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: 44px; }
   #actions .big { grid-row: auto; font-size: 15px; }
   #actions button { min-height: 44px; }
