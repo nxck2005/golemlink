@@ -1,0 +1,23 @@
+{
+  "name": "golemlink",
+  "version": "1.0.0",
+  "description": "Self-hosted remote client for Minecraft: Java Edition — a Termux-friendly daemon with a touch web UI.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "golemlink": "src/main.js"
+  },
+  "scripts": {
+    "start": "node src/main.js",
+    "test": "node scripts/check-no-native.mjs && node --test",
+    "e2e": "node scripts/e2e.mjs"
+  },
+  "dependencies": {
+    "mineflayer": "4.39.0",
+    "mineflayer-pathfinder": "2.4.5",
+    "ws": "8.22.0"
+  }
+}

@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1013">
+<meta name="color-scheme" content="dark">
+<title>golemlink</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="banners"></div>
+
+<header id="statusbar">
+  <div class="statusrow">
+    <button id="session-picker" class="picker" type="button" aria-haspopup="listbox">
+      <span id="state-dot" class="dot stopped"></span>
+      <span id="session-label" class="mono">no session</span>
+      <span class="caret">▾</span>
+    </button>
+    <span id="coords" class="mono muted">–</span>
+  </div>
+  <div id="session-menu" class="menu hidden" role="listbox"></div>
+  <div class="bars">
+    <div class="bar hp"><span id="hp-fill"></span></div>
+    <div class="bar food"><span id="food-fill"></span></div>
+    <div class="bar xp"><span id="xp-fill"></span></div>
+  </div>
+  <div id="actionbar" class="mono muted"></div>
+</header>
+
+<main id="content">
+  <section id="tab-chat" class="tab active">
+    <div id="chat-log" class="log mono"></div>
+    <button id="jump-latest" class="chip hidden" type="button">Jump to latest ↓</button>
+    <div id="suggestions" class="chips hidden"></div>
+    <form id="chat-form">
+      <input id="chat-input" type="text" autocomplete="off" autocapitalize="off" enterkeyhint="send" placeholder="Message or /command">
+      <button id="chat-send" type="submit">Send</button>
+    </form>
+  </section>
+
+  <section id="tab-move" class="tab">
+    <div id="move-top">
+      <div id="map-wrap">
+        <canvas id="map" width="300" height="300"></canvas>
+        <div class="map-controls">
+          <button id="zoom-out" type="button">−</button>
+          <button id="zoom-in" type="button">+</button>
+        </div>
+        <div id="goto-chip" class="chip hidden"><span id="goto-text"></span><button id="goto-go" type="button">Go</button></div>
+      </div>
+      <div id="move-side">
+        <div id="look-pad"><span class="pad-label">look</span></div>
+        <div class="row">
+          <button id="turn-left" class="btn" type="button">⟲ 90°</button>
+          <button id="turn-right" class="btn" type="button">⟳ 90°</button>
+        </div>
+        <div id="looking-at" class="mono muted small"></div>
+        <div id="step-row" class="row wrap">
+          <span class="label">step</span>
+          <button class="btn step" data-dir="n" type="button">N</button>
+          <button class="btn step" data-dir="e" type="button">E</button>
+          <button class="btn step" data-dir="s" type="button">S</button>
+          <button class="btn step" data-dir="w" type="button">W</button>
+          <button class="btn stepn" data-n="1" type="button">1</button>
+          <button class="btn stepn" data-n="2" type="button">2</button>
+          <button class="btn stepn" data-n="4" type="button">4</button>
+          <button class="btn stepn" data-n="8" type="button">8</button>
+        </div>
+      </div>
+    </div>
+    <div id="move-bottom">
+      <div id="joystick"><div id="stick"></div></div>
+      <div id="actions">
+        <button id="btn-jump" class="btn big" type="button">Jump</button>
+        <button id="btn-sprint" class="btn toggle" type="button">Sprint</button>
+        <button id="btn-sneak" class="btn toggle" type="button">Sneak</button>
+        <button id="btn-interact" class="btn" type="button">Interact</button>
+        <button id="btn-use" class="btn" type="button">Use</button>
+        <button id="btn-stop" class="btn danger" type="button">STOP</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-bag" class="tab">
+    <div id="bag-toolbar">
+      <span id="cursor-banner" class="hidden">Cursor: <span id="cursor-item"></span></span>
+      <button id="details-toggle" class="btn small" type="button">ⓘ Details mode</button>
+      <button id="close-window" class="btn small hidden" type="button">Close window</button>
+    </div>
+    <div id="open-window" class="hidden">
+      <h2 id="window-title" class="mono"></h2>
+      <div id="window-grid" class="grid"></div>
+    </div>
+    <h2 class="mono small muted">inventory</h2>
+    <div id="armor-row" class="grid"></div>
+    <div id="inv-grid" class="grid"></div>
+    <div id="hotbar-grid" class="grid hotbar"></div>
+  </section>
+
+  <section id="tab-more" class="tab">
+    <h2>Sessions</h2>
+    <div id="sessions-list"></div>
+    <h2>Players</h2>
+    <div id="players-list" class="mono small muted">–</div>
+    <h2>Servers</h2>
+    <div id="servers-list"></div>
+    <h2>Accounts</h2>
+    <div id="accounts-list"></div>
+    <h2>Daemon</h2>
+    <div id="daemon-info" class="mono small muted">–</div>
+    <p class="disclaimer">Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.</p>
+  </section>
+</main>
+
+<nav id="tabs">
+  <button class="tabbtn active" data-tab="chat" type="button">Chat</button>
+  <button class="tabbtn" data-tab="move" type="button">Move</button>
+  <button class="tabbtn" data-tab="bag" type="button">Bag</button>
+  <button class="tabbtn" data-tab="more" type="button">More</button>
+</nav>
+
+<div id="sheet" class="hidden">
+  <div id="sheet-body"></div>
+  <button id="sheet-close" class="btn" type="button">Close</button>
+</div>
+
+<div id="toasts"></div>
+<div id="disconnect-banner" class="banner hidden"></div>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>
