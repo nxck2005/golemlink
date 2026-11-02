@@ -7,8 +7,10 @@ const listeners = new Map()
 export const store = {
   ws: null,
   connected: false,
-  tokenRejected: false,
+  signedOut: false,
+  me: null,
   hello: null,
+  textures: [],
   sessions: [],
   accounts: [],
   servers: [],
@@ -44,6 +46,16 @@ export const store = {
         console.error('ui handler failed', event, err)
       }
     }
+  },
+
+  // Session list entries carry relative times; turn them into local clock
+  // times once, when they arrive.
+  stampSession (session, receivedAt = Date.now()) {
+    if (session.onlineMs != null) session.onlineAt = receivedAt - session.onlineMs
+    else if (session.state !== 'online') session.onlineAt = null
+    if (session.retryInMs) session.retryAt = receivedAt + session.retryInMs
+    else if (session.state !== 'reconnecting') session.retryAt = null
+    return session
   },
 
   session () {

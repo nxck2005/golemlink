@@ -103,6 +103,9 @@ export class Session {
       detail: this.detail,
       pendingMsa: this.pendingMsa,
       onlineSince: this.onlineSince,
+      // Relative times, so browsers with a skewed clock still count right.
+      onlineMs: this.onlineSince ? Date.now() - this.onlineSince : null,
+      retryInMs: this.retryAt ? Math.max(0, this.retryAt - Date.now()) : null,
       version: this.state === 'online' ? this.bot?.version || null : null,
       lastAlert: this.lastAlert
     }
@@ -389,6 +392,7 @@ export class Session {
     this.reason = reason
     this.detail = detail
     this.retryInMs = retryInMs || 0
+    this.retryAt = retryInMs ? Date.now() + retryInMs : null
     const msg = { t: 'state', s: this.id, state, reason, detail }
     if (retryInMs) msg.retryInMs = retryInMs
     this.hub.sendToSubscribers(this.id, msg)

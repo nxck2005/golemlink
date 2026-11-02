@@ -1,6 +1,7 @@
 import { store } from './store.js'
 import { send } from './net.js'
 import { ensureContrast } from './items.js'
+import { serverFor } from './play.js'
 
 let log, jumpButton, form, input, suggestionBox
 let autoScroll = true
@@ -8,8 +9,35 @@ let tabTimer = null
 let searchInput
 
 function matchesSearch (line) {
-  const text = line.plain || (line.segs || []).map(seg => seg.x).join('')
-  return text.toLowerCase().includes(searchInput.value.trim().toLowerCase())
+  return lineText(line).toLowerCase().includes(searchInput.value.trim().toLowerCase())
+}
+
+const recentListeners = new Set()
+
+// Calls fn whenever the chat changes, so Play can show the last few lines.
+export function onChatChange (fn) {
+  recentListeners.add(fn)
+}
+
+export function recentLines (n = 4) {
+  return store.chat.slice(-n)
+}
+
+function chatChanged () {
+  for (const fn of recentListeners) fn()
+}
+
+function lineText (line) {
+  return line.plain || (line.segs || []).map(seg => seg.x).join('')
+}
+
+// Lines that match the server's alert keywords get highlighted.
+function isMention (line) {
+  if (line.echo) return false
+  const keywords = serverFor()?.alerts?.keywords || []
+  if (!keywords.length) return false
+  const text = lineText(line).toLowerCase()
+  return keywords.some(k => k && text.includes(String(k).toLowerCase()))
 }
 
 function renderChat () {
@@ -19,13 +47,11 @@ function renderChat () {
   log.classList.toggle('hidden', store.chat.length === 0)
   const empty = document.getElementById('chat-empty')
   empty.classList.toggle('hidden', store.chat.length > 0)
-  empty.querySelector('h2').textContent = store.sessionId ? 'You’re connected to your adventure' : 'Your next adventure starts here'
-  empty.querySelector('p').textContent = store.sessionId ? 'Messages will appear here when the server sends them. You can send a message or /command below once your bot is online.' : 'Add an account and a server, then start a session. Your bot stays connected even when you close this page.'
-  document.getElementById('setup-open').textContent = store.sessionId ? 'Manage sessions →' : 'Set up your first session →'
+  empty.textContent = store.sessionId ? 'Messages from the server appear here.' : 'Start a session to see chat.'
   if (store.chat.length && !matching.length) {
     const message = document.createElement('div')
-    message.className = 'muted'
-    message.textContent = 'No messages match your search.'
+    message.className = 't3'
+    message.textContent = 'No messages match your search'
     log.appendChild(message)
   }
   log.scrollTop = log.scrollHeight
@@ -43,9 +69,9 @@ function nearBottom () {
   return log.scrollHeight - log.scrollTop - log.clientHeight < 40
 }
 
-function makeLine (line) {
+export function makeLine (line) {
   const row = document.createElement('div')
-  row.className = 'chat-line' + (line.echo ? ' echo' : '')
+  row.className = 'chat-line' + (line.echo ? ' echo' : '') + (isMention(line) ? ' mention' : '')
   const time = document.createElement('span')
   time.className = 'ts'
   time.textContent = new Date(line.ts || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -55,7 +81,7 @@ function makeLine (line) {
     const span = document.createElement('span')
     span.textContent = seg.x
     if (seg.c) span.style.color = ensureContrast(seg.c)
-    if (seg.b) span.style.fontWeight = '700'
+    if (seg.b) span.style.fontWeight = '600'
     if (seg.i) span.style.fontStyle = 'italic'
     if (seg.u || seg.s) {
       const parts = []
@@ -90,6 +116,7 @@ function renderSuggestions (items) {
   for (const item of items) {
     const button = document.createElement('button')
     button.type = 'button'
+    button.className = 'chip'
     button.textContent = item
     button.addEventListener('click', () => {
       input.value = item
@@ -109,11 +136,23 @@ export function initChat () {
   suggestionBox = document.getElementById('suggestions')
   searchInput = document.getElementById('chat-search')
   searchInput.addEventListener('input', renderChat)
+  const searchRow = document.getElementById('chat-search-row')
+  const searchToggle = document.getElementById('chat-search-toggle')
+  searchToggle.addEventListener('click', () => {
+    const open = searchRow.classList.toggle('hidden') === false
+    searchToggle.setAttribute('aria-expanded', String(open))
+    if (open) searchInput.focus()
+    else if (searchInput.value) {
+      searchInput.value = ''
+      renderChat()
+    }
+  })
 
   store.on('snapshot', () => {
     renderChat()
     updateComposer()
     autoScroll = true
+    chatChanged()
   })
   store.on('session', () => {
     clearTimeout(tabTimer)
@@ -122,11 +161,15 @@ export function initChat () {
     renderSuggestions([])
     renderChat()
     updateComposer()
+    chatChanged()
   })
   store.on('sessions', updateComposer)
   store.on('hello', updateComposer)
   store.on('connection', updateComposer)
-  store.on('chat', line => appendLine(line))
+  store.on('chat', line => {
+    appendLine(line)
+    chatChanged()
+  })
   store.on('tab', msg => {
     if (msg.s === store.sessionId) renderSuggestions(msg.items)
   })

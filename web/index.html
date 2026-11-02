@@ -1,148 +1,303 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0e1013">
+<meta name="theme-color" content="#141516">
 <meta name="color-scheme" content="dark">
 <title>golemlink</title>
-<link rel="manifest" href="/manifest.webmanifest">
-<link rel="icon" href="/icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="/style.css">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="preload" href="fonts/atkinson-next.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="style.css">
+<script type="module" src="app.js"></script>
 </head>
-<body>
-<div id="banners"></div>
+<body data-view="play">
 
-<header id="statusbar">
-  <div class="brand"><img src="/icon.svg" alt="" width="34" height="34"><div><strong>golemlink</strong><span>YOUR MINECRAFT COMPANION</span></div><span id="connection-state" class="connection-state">Connecting</span></div>
-  <div class="statusrow">
-    <button id="session-picker" class="picker" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose session">
-      <span id="state-dot" class="dot stopped"></span>
-      <span id="session-label" class="mono">Choose a session</span>
-      <span class="caret">▾</span>
-    </button>
-    <span id="coords" class="mono muted">–</span>
+<svg class="sprite" aria-hidden="true">
+  <symbol id="i-play" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+  <symbol id="i-move" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z"/></symbol>
+  <symbol id="i-setup" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M19 14c1.5-1.5 3-3.2 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.8 0-3 .5-4.5 2-1.5-1.5-2.7-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4 3 5.5l7 7z"/></symbol>
+  <symbol id="i-food" viewBox="0 0 24 24"><path d="M12 4c4 0 7 3 7 7 0 4.5-3.5 9-7 9s-7-4.5-7-9c0-4 3-7 7-7z"/><path d="M12 4c0-1 1-2 2-2"/></symbol>
+  <symbol id="i-level" viewBox="0 0 24 24"><path d="M12 3 21 12l-9 9-9-9z"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/></symbol>
+  <symbol id="i-desktop" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+</svg>
+
+<!-- Signed out: create the login on first run, sign in after that -->
+<div id="auth" class="auth hidden">
+  <form id="auth-setup" class="auth-card hidden" novalidate>
+    <div class="wordmark"><span class="mark"><i></i></span>golemlink</div>
+    <h1>Create your login</h1>
+    <p class="lead">Enter the setup code golemlink printed in its terminal when it started. It works once, for 15 minutes.</p>
+    <div class="field">
+      <label for="setup-code">Setup code</label>
+      <input id="setup-code" class="input otp" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="000 000" required>
+    </div>
+    <div class="field">
+      <label for="setup-username">Username</label>
+      <input id="setup-username" class="input" autocomplete="username" autocapitalize="off" spellcheck="false" maxlength="64" required>
+    </div>
+    <div class="field">
+      <label for="setup-password">Password</label>
+      <input id="setup-password" class="input" type="password" autocomplete="new-password" minlength="8" maxlength="256" required>
+      <span class="hint">At least 8 characters</span>
+    </div>
+    <p id="setup-error" class="form-error" role="alert"></p>
+    <button class="btn primary" type="submit">Create login</button>
+  </form>
+
+  <form id="auth-signin" class="auth-card hidden" novalidate>
+    <div class="wordmark"><span class="mark"><i></i></span>golemlink</div>
+    <h1>Sign in</h1>
+    <p class="lead">Your bots keep running while you’re signed out.</p>
+    <div class="field">
+      <label for="signin-username">Username</label>
+      <input id="signin-username" class="input" autocomplete="username" autocapitalize="off" spellcheck="false" maxlength="64" required>
+    </div>
+    <div class="field">
+      <label for="signin-password">Password</label>
+      <input id="signin-password" class="input" type="password" autocomplete="current-password" maxlength="256" required>
+    </div>
+    <label class="check"><input id="signin-remember" type="checkbox" checked><span class="box"><svg class="icon sm"><use href="#i-check"/></svg></span>Keep me signed in on this device for 90 days</label>
+    <p id="signin-error" class="form-error" role="alert"></p>
+    <button class="btn primary" type="submit">Sign in</button>
+    <p class="foot">Forgot your password? Run <span class="mono nowrap">node src/main.js reset-password</span> on the host.</p>
+  </form>
+
+  <div id="auth-offline" class="auth-card hidden">
+    <div class="wordmark"><span class="mark"><i></i></span>golemlink</div>
+    <h1>Can’t reach golemlink</h1>
+    <p class="lead">The daemon isn’t answering. This page retries every few seconds.</p>
   </div>
-  <div id="session-menu" class="menu hidden" role="listbox"></div>
-  <div class="bars">
-    <div class="stat"><div>Health <strong id="hp-value">—</strong></div><div class="bar hp"><span id="hp-fill"></span></div></div>
-    <div class="stat"><div>Food <strong id="food-value">—</strong></div><div class="bar food"><span id="food-fill"></span></div></div>
-    <div class="stat"><div>XP level <strong id="xp-value">—</strong></div><div class="bar xp"><span id="xp-fill"></span></div></div>
-  </div>
-  <div id="actionbar" class="mono muted"></div>
-</header>
-
-<main id="content">
-  <section id="tab-chat" class="tab active">
-    <div class="page-heading"><div><span class="eyebrow">STAY CONNECTED</span><h1>Chat</h1><p>Your server conversations, all in one place.</p></div><input id="chat-search" type="search" placeholder="Search messages" aria-label="Search chat messages"></div>
-    <div id="chat-empty" class="empty-state"><span class="empty-icon" aria-hidden="true">◇</span><h2>Your next adventure starts here</h2><p>Add an account and a server, then start a session. Your bot stays connected even when you close this page.</p><button id="setup-open" class="primary" type="button">Set up your first session →</button></div>
-    <div id="chat-log" class="log mono" role="log" aria-label="Server chat"></div>
-    <button id="jump-latest" class="chip hidden" type="button">Jump to latest ↓</button>
-    <div id="suggestions" class="chips hidden"></div>
-    <form id="chat-form">
-      <input id="chat-input" type="text" autocomplete="off" autocapitalize="off" enterkeyhint="send" placeholder="Message or /command" aria-label="Message or command">
-      <button id="chat-send" class="primary" type="submit">Send ↑</button>
-    </form>
-  </section>
-
-  <section id="tab-move" class="tab">
-    <div class="page-heading"><div><span class="eyebrow">EXPLORE YOUR WORLD</span><h1>Movement</h1><p>Hold W/A/S/D to move, Space to jump. Drag to look. Tap the map to choose a destination.</p></div></div>
-    <div id="move-top">
-      <div id="map-wrap">
-        <canvas id="map" width="300" height="300" aria-label="Nearby terrain and players"></canvas>
-        <span class="map-label">N ↑ · Nearby terrain</span>
-        <div class="map-controls">
-          <button id="zoom-out" type="button" aria-label="Zoom out">−</button>
-          <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
-        </div>
-        <div id="goto-chip" class="chip hidden"><span id="goto-text"></span><button id="goto-go" type="button">Go</button></div>
-      </div>
-      <div id="move-side">
-        <div id="look-pad"><span class="pad-label">＋<br><strong>Drag to look</strong></span></div>
-        <div class="row">
-          <button id="turn-left" class="btn" type="button">⟲ 90°</button>
-          <button id="turn-right" class="btn" type="button">⟳ 90°</button>
-        </div>
-        <div id="looking-at" class="mono muted small"></div>
-        <div id="step-row" class="row wrap">
-          <span class="label">Step direction / blocks</span>
-          <button class="btn step" data-dir="n" type="button">N</button>
-          <button class="btn step" data-dir="e" type="button">E</button>
-          <button class="btn step" data-dir="s" type="button">S</button>
-          <button class="btn step" data-dir="w" type="button">W</button>
-          <button class="btn stepn" data-n="1" type="button">1</button>
-          <button class="btn stepn" data-n="2" type="button">2</button>
-          <button class="btn stepn" data-n="4" type="button">4</button>
-          <button class="btn stepn" data-n="8" type="button">8</button>
-        </div>
-      </div>
-    </div>
-    <div id="move-bottom">
-      <div class="movement-pad"><div id="wasd-pad" role="group" aria-label="Hold to move">
-        <button id="move-forward" data-control="forward" type="button" aria-label="Move forward (W)" aria-pressed="false">W</button>
-        <button id="move-left" data-control="left" type="button" aria-label="Move left (A)" aria-pressed="false">A</button>
-        <button id="move-back" data-control="back" type="button" aria-label="Move backward (S)" aria-pressed="false">S</button>
-        <button id="move-right" data-control="right" type="button" aria-label="Move right (D)" aria-pressed="false">D</button>
-      </div><span class="small muted">Hold keys or buttons · Space to jump</span></div>
-      <div id="actions">
-        <button id="btn-jump" class="btn big" data-control="jump" type="button" aria-pressed="false">Jump</button>
-        <button id="btn-sprint" class="btn toggle" type="button">Sprint</button>
-        <button id="btn-sneak" class="btn toggle" type="button">Sneak</button>
-        <button id="btn-interact" class="btn" type="button">Interact</button>
-        <button id="btn-use" class="btn" type="button">Use</button>
-        <button id="btn-stop" class="btn danger" type="button">STOP</button>
-      </div>
-    </div>
-  </section>
-
-  <section id="tab-bag" class="tab">
-    <div class="page-heading"><div><span class="eyebrow">READY FOR ANYTHING</span><h1>Inventory</h1><p>Tap for left click. Right-click or hold for right click. Details mode has buttons for both, including server menus.</p></div></div>
-    <p id="bag-empty" class="card muted">Start a session to see your backpack, armor, and hotbar.</p>
-    <div id="bag-toolbar">
-      <span id="cursor-banner" class="hidden">Cursor: <span id="cursor-item"></span></span>
-      <button id="details-toggle" class="btn small" type="button">ⓘ Details mode</button>
-      <button id="close-window" class="btn small hidden" type="button">Close window</button>
-    </div>
-    <div id="open-window" class="hidden">
-      <h2 id="window-title" class="mono"></h2>
-      <div id="window-grid" class="grid"></div>
-    </div>
-    <h2>Armor &amp; offhand</h2>
-    <div id="armor-row" class="grid"></div>
-    <h2>Backpack</h2>
-    <div id="inv-grid" class="grid"></div>
-    <h2>Hotbar</h2>
-    <div id="hotbar-grid" class="grid hotbar"></div>
-  </section>
-
-  <section id="tab-more" class="tab">
-    <div class="page-heading"><div><span class="eyebrow">MAKE YOURSELF AT HOME</span><h1>Setup &amp; sessions</h1><p>Add an account, choose a server, and bring your bot online.</p></div></div>
-    <div class="settings-grid">
-      <section class="settings-section"><h2><span class="section-number">1</span> Accounts</h2><p class="section-help">Microsoft for premium servers; offline for offline-mode servers.</p><div id="accounts-list"></div></section>
-      <section class="settings-section"><h2><span class="section-number">2</span> Servers</h2><p class="section-help">Where would you like to play? Version detection is automatic.</p><div id="servers-list"></div></section>
-      <section class="settings-section wide"><h2><span class="section-number">3</span> Sessions</h2><p class="section-help">Pair an account with a server. Multiple bots can run at once.</p><div id="sessions-list"></div></section>
-      <section class="settings-section"><h2>Online players</h2><div id="players-list" class="mono small muted">–</div></section>
-      <section class="settings-section"><h2>Daemon health</h2><div id="daemon-info" class="mono small muted">–</div></section>
-    </div>
-    <p class="disclaimer">Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.</p>
-  </section>
-</main>
-
-<nav id="tabs" aria-label="Main navigation">
-  <button class="tabbtn active" data-tab="chat" type="button" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v12H9l-5 4z"/></svg><span>Chat</span></button>
-  <button class="tabbtn" data-tab="move" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 18-8-4-8 4z"/></svg><span>Move</span></button>
-  <button class="tabbtn" data-tab="bag" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7V4h8v3M5 7h14v14H5zM5 12h14M10 12v3h4v-3"/></svg><span>Inventory</span></button>
-  <button class="tabbtn" data-tab="more" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16M8 3v6M16 9v6M8 15v6"/></svg><span>Setup</span></button>
-</nav>
-
-<div id="sheet" class="hidden" role="dialog" aria-label="Item details">
-  <div id="sheet-body"></div>
-  <button id="sheet-close" class="btn" type="button">Close</button>
 </div>
 
-<div id="toasts" role="status" aria-live="polite"></div>
-<div id="disconnect-banner" class="banner hidden" role="status"></div>
+<div id="app" class="app hidden">
+  <aside class="rail">
+    <div class="wordmark"><span class="mark"><i></i></span>golemlink</div>
+    <div id="rail-sessions" class="rail-sessions"></div>
+    <div class="rail-label">This session</div>
+    <nav class="rail-nav" aria-label="Views">
+      <button class="rail-item" type="button" data-view="play"><svg class="icon"><use href="#i-play"/></svg>Play</button>
+      <button class="rail-item" type="button" data-view="move"><svg class="icon"><use href="#i-move"/></svg>Move and map</button>
+      <button class="rail-item" type="button" data-view="setup"><svg class="icon"><use href="#i-setup"/></svg>Setup</button>
+    </nav>
+    <div class="rail-foot">
+      <span id="rail-avatar" class="avatar">?</span>
+      <span id="rail-user" class="rail-user"></span>
+      <button id="sign-out" class="link-btn" type="button">Sign out</button>
+    </div>
+  </aside>
 
-<script type="module" src="/app.js"></script>
+  <header class="phone-head">
+    <button id="session-picker" class="session-btn" type="button" aria-haspopup="listbox" aria-expanded="false">
+      <span id="picker-dot" class="dot off"></span><span id="picker-label">No session</span><svg class="icon sm"><use href="#i-down"/></svg>
+    </button>
+    <div class="vitals num">
+      <span class="hp"><svg class="icon sm"><use href="#i-heart"/></svg><span id="p-hp">–</span></span>
+      <span class="food"><svg class="icon sm"><use href="#i-food"/></svg><span id="p-food">–</span></span>
+      <span class="lv"><svg class="icon sm"><use href="#i-level"/></svg><span id="p-lv">–</span></span>
+    </div>
+    <div id="session-menu" class="menu session-menu hidden" role="listbox"></div>
+  </header>
+
+  <main class="main">
+    <div class="topbar">
+      <div class="who"><strong id="top-title">No session</strong><span id="top-sub"></span></div>
+      <div class="spacer"></div>
+      <div id="top-bars" class="bars">
+        <div class="bar"><div>Health <b id="bar-hp">–</b></div><s><i id="bar-hp-fill" class="fill-hp"></i></s></div>
+        <div class="bar"><div>Food <b id="bar-food">–</b></div><s><i id="bar-food-fill" class="fill-food"></i></s></div>
+        <div class="bar"><div>Level <b id="bar-lv">–</b></div><s><i id="bar-lv-fill" class="fill-lv"></i></s></div>
+      </div>
+    </div>
+    <div id="banner" class="banner hidden" role="status"></div>
+    <p id="actionbar" class="actionbar hidden"></p>
+
+    <!-- Play -->
+    <section id="view-play" class="view" aria-label="Play">
+      <div id="play" class="play">
+        <div id="empty-play" class="panel empty hidden">
+          <strong id="empty-title">Start a session</strong>
+          <p id="empty-text" class="t2">Add a Minecraft account and a server in Setup, then start a session. Your bot stays connected when you close this page.</p>
+          <button id="empty-setup" class="btn primary" type="button">Open setup</button>
+        </div>
+
+        <div id="status-card" class="panel heartbeat">
+          <div class="hb-top"><span id="hb-dot" class="dot off"></span><div><div id="hb-time" class="hb-time">Stopped</div><div id="hb-sub" class="hb-sub"></div></div></div>
+          <div class="hb-row"><span id="hb-afk-label">Anti-AFK</span><button id="hb-afk" class="toggle" type="button" role="switch" aria-checked="false" aria-labelledby="hb-afk-label"></button></div>
+          <div class="hb-row"><span id="hb-alert">No alerts yet</span><span id="hb-alert-time" class="t3 num"></span></div>
+        </div>
+
+        <div id="cursor-banner" class="cursor-banner hidden" role="status">
+          <span id="cursor-slot" class="slot small"></span><span id="cursor-text"></span>
+        </div>
+
+        <div id="window-panel" class="panel window hidden">
+          <div class="panel-title"><strong id="window-title">Container</strong>
+            <button id="close-window" class="btn sm" type="button"><svg class="icon sm"><use href="#i-close"/></svg>Close <span class="kbd desk-only">Esc</span></button>
+          </div>
+          <div id="window-grid" class="grid9"></div>
+          <div id="window-caption" class="caption"></div>
+        </div>
+
+        <div id="pack-panel" class="panel pack">
+          <button id="pack-toggle" class="row-link phone-only" type="button" aria-expanded="false" aria-controls="pack-body">Backpack and armor<svg class="icon"><use href="#i-right"/></svg></button>
+          <div id="pack-body" class="pack-body">
+            <div class="panel-title"><strong>Backpack</strong><span id="pack-count" class="num"></span></div>
+            <div id="armor-row" class="armor-row"></div>
+            <div id="pack-grid" class="grid9"></div>
+          </div>
+        </div>
+
+        <div id="hotbar-panel" class="panel hotbar">
+          <div class="panel-title"><strong>Hotbar</strong><span id="hotbar-hint" class="hint"></span></div>
+          <div id="hotbar-grid" class="grid9"></div>
+          <div id="slot-caption" class="caption"></div>
+        </div>
+
+        <div id="held-panel" class="panel held">
+          <div class="panel-title desk-only"><strong>Held</strong><span id="held-slot-label" class="num"></span></div>
+          <div class="held-item desk-only">
+            <span id="held-slot" class="slot"></span>
+            <div><div id="held-name" class="name">Nothing</div><div id="held-lore" class="t2 small"></div></div>
+          </div>
+          <div class="actions">
+            <button id="btn-use" class="btn primary" type="button">Use item <span class="kbd on-accent desk-only">E</span></button>
+            <button id="btn-interact" class="btn" type="button"><span class="phone-only">Interact</span><span class="desk-only">Interact with block</span> <span class="kbd desk-only">F</span></button>
+          </div>
+          <div id="held-target" class="t3 small target"></div>
+        </div>
+
+        <div id="recent-panel" class="recent phone-only">
+          <div class="sec-title"><span>Recent chat</span><button id="open-chat" class="link-btn" type="button">Open chat</button></div>
+          <div id="recent-chat" class="chatlines"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Move -->
+    <section id="view-move" class="view" aria-label="Move and map">
+      <div class="move">
+        <div id="map-wrap" class="map">
+          <canvas id="map" aria-label="Map. Drag to look around, click to walk there"></canvas>
+          <span class="compass" aria-hidden="true">N</span>
+          <div class="zoom"><button id="zoom-in" type="button" aria-label="Zoom in">+</button><button id="zoom-out" type="button" aria-label="Zoom out">−</button></div>
+          <span id="map-coords" class="ptag coords-tag num"></span>
+          <div id="goto-chip" class="goto hidden"><span id="goto-text"></span><button id="goto-go" class="btn sm primary" type="button">Go</button><button id="goto-cancel" class="btn sm quiet" type="button">Cancel</button></div>
+          <p id="map-empty" class="map-empty hidden">The map appears once the bot is online.</p>
+        </div>
+        <div class="move-side">
+          <div class="looking"><span>Looking at</span><strong id="looking-at">–</strong></div>
+          <div class="panel">
+            <div class="panel-title"><strong>Walk</strong><span class="desk-only">Hold W A S D</span></div>
+            <div class="walk">
+              <div class="wasd">
+                <button id="move-forward" class="key w" type="button" data-control="forward" aria-pressed="false" aria-label="Forward">W</button>
+                <button id="move-left" class="key a" type="button" data-control="left" aria-pressed="false" aria-label="Left">A</button>
+                <button id="move-back" class="key s" type="button" data-control="back" aria-pressed="false" aria-label="Back">S</button>
+                <button id="move-right" class="key d" type="button" data-control="right" aria-pressed="false" aria-label="Right">D</button>
+              </div>
+              <div class="side-btns">
+                <button id="btn-jump" class="btn" type="button" data-control="jump" aria-pressed="false">Jump</button>
+                <button id="btn-sprint" class="btn" type="button" aria-pressed="false">Sprint</button>
+                <button id="btn-sneak" class="btn" type="button" aria-pressed="false">Sneak</button>
+                <button id="btn-stop" class="btn danger" type="button">Stop</button>
+              </div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-title"><strong>Look</strong><span>Drag on the map</span></div>
+            <div class="side-btns two">
+              <button id="turn-left" class="btn" type="button">Turn left</button>
+              <button id="turn-right" class="btn" type="button">Turn right</button>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-title"><strong id="afk-label">Anti-AFK</strong><button id="afk-toggle" class="toggle" type="button" role="switch" aria-checked="false" aria-labelledby="afk-label"></button></div>
+            <p id="afk-text" class="t2 small">A small turn and a jump while you’re not moving. Check the server’s rules first.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Setup -->
+    <section id="view-setup" class="view" aria-label="Setup">
+      <div class="setup">
+        <div class="setup-col">
+          <div class="panel">
+            <div class="panel-title"><strong>Sessions</strong><button id="new-session" class="btn sm primary" type="button">New session</button></div>
+            <div id="start-form" class="start-form hidden"></div>
+            <div id="sessions-list" class="list"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-title"><strong>Players online</strong><span id="players-count" class="num"></span></div>
+            <div id="players-list" class="players"></div>
+          </div>
+        </div>
+        <div class="setup-col">
+          <div class="panel">
+            <div class="panel-title"><strong>Servers</strong><button id="add-server" class="btn sm" type="button">Add server</button></div>
+            <div id="servers-list" class="list"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-title"><strong>Minecraft accounts</strong><button id="add-account" class="btn sm" type="button">Add account</button></div>
+            <div id="accounts-list" class="list"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-title"><strong>Your login</strong><button id="change-password" class="btn sm" type="button">Change password</button></div>
+            <form id="password-form" class="form hidden" novalidate>
+              <div class="field"><label for="pw-current">Current password</label><input id="pw-current" class="input" type="password" autocomplete="current-password" required></div>
+              <div class="field"><label for="pw-next">New password</label><input id="pw-next" class="input" type="password" autocomplete="new-password" minlength="8" required><span class="hint">At least 8 characters. Your other devices are signed out.</span></div>
+              <p id="pw-error" class="form-error" role="alert"></p>
+              <div class="form-actions"><button class="btn primary" type="submit">Save password</button><button id="pw-cancel" class="btn quiet" type="button">Cancel</button></div>
+            </form>
+            <div id="logins-list" class="list"></div>
+            <button id="setup-sign-out" class="btn sm phone-only" type="button">Sign out of this device</button>
+          </div>
+          <p id="daemon-info" class="about t3 small"></p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <aside id="chat-panel" class="chatcol" aria-label="Chat">
+    <div class="head">
+      <strong>Chat</strong>
+      <button id="chat-search-toggle" class="icon-btn" type="button" aria-label="Search chat" aria-expanded="false"><svg class="icon"><use href="#i-search"/></svg></button>
+    </div>
+    <div id="chat-search-row" class="search-row hidden"><input id="chat-search" class="input sm" type="search" placeholder="Search" autocomplete="off"></div>
+    <div class="chat-scroll">
+      <div id="chat-log" class="chat-log" aria-live="polite"></div>
+      <p id="chat-empty" class="chat-empty t3">Messages from the server appear here.</p>
+      <button id="jump-latest" class="btn sm jump hidden" type="button">Jump to latest</button>
+    </div>
+    <div id="suggestions" class="chips hidden"></div>
+    <form id="chat-form" class="chat-input">
+      <input id="chat-input" class="input" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="256" placeholder="Message or /command" aria-label="Message or command">
+      <button id="chat-send" class="btn primary square" type="submit" aria-label="Send"><svg class="icon"><use href="#i-send"/></svg></button>
+    </form>
+  </aside>
+
+  <nav id="tabs" class="p-tabs" aria-label="Views">
+    <button class="p-tab" type="button" data-view="play"><svg class="icon"><use href="#i-play"/></svg>Play</button>
+    <button id="chat-tab" class="p-tab" type="button" data-view="chat"><svg class="icon"><use href="#i-chat"/></svg>Chat</button>
+    <button class="p-tab" type="button" data-view="move"><svg class="icon"><use href="#i-move"/></svg>Move</button>
+    <button class="p-tab" type="button" data-view="setup"><svg class="icon"><use href="#i-setup"/></svg>Setup</button>
+  </nav>
+</div>
+
+<div id="slot-menu" class="menu slot-menu hidden" role="menu"></div>
+<div id="tooltip" class="tooltip hidden" role="tooltip"></div>
+<div id="toasts" class="toasts" aria-live="polite"></div>
 </body>
 </html>

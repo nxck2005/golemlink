@@ -1,21 +1,20 @@
 import { store } from './store.js'
 import { send } from './net.js'
 import { movementKey, isTypingTarget } from './keyboard.js'
+import { serverFor, setAntiAfk, menuOpen } from './play.js'
 
 const MOMENTARY = ['forward', 'back', 'left', 'right', 'jump']
 const controls = Object.fromEntries(MOMENTARY.map(k => [k, false]))
 const inputSources = new Map(MOMENTARY.map(key => [key, new Set()]))
 const heldPointers = new Map()
 const heldKeys = new Map()
+const DRAG_PX = 6
 let holdTimer = null
-let lookPointer = null
-let lastLookPoint = { x: 0, y: 0 }
+let drag = null // pointer on the map: a tap walks there, a drag looks around
 let pendingLook = null
-let dragLook = null
 let lookTimer = null
 let lastLookSent = 0
 let zoom = 2
-let stepN = 4
 let gotoPending = null
 let canvas, ctx, dpr = 1
 let tileCache = new Map()
@@ -46,8 +45,7 @@ function setInput (control, source, on) {
 
 function canMove () {
   return store.connected && store.session()?.state === 'online' &&
-    document.getElementById('tab-move').classList.contains('active') &&
-    document.getElementById('sheet').classList.contains('hidden')
+    document.body.dataset.view === 'move' && !menuOpen()
 }
 
 function bindHoldButton (button, control) {
@@ -123,13 +121,12 @@ function updateHeartbeat () {
 
 export function releaseAllControls (notify = false) {
   const captured = [...heldPointers].map(([pointer, held]) => [held.button, pointer])
-  captured.push([document.getElementById('look-pad'), lookPointer])
+  if (drag) captured.push([canvas, drag.id])
   heldPointers.clear()
   heldKeys.clear()
   for (const sources of inputSources.values()) sources.clear()
   pendingLook = null
-  dragLook = null
-  lookPointer = null
+  drag = null
   if (lookTimer) clearTimeout(lookTimer)
   lookTimer = null
   for (const k of MOMENTARY) {
@@ -166,89 +163,84 @@ function scheduleLook () {
   else if (!lookTimer) lookTimer = setTimeout(applyLook, wait)
 }
 
+function turn (by) {
+  const status = store.status || { yaw: 0, pitch: 0 }
+  pendingLook = { yaw: (status.yaw || 0) + by, pitch: status.pitch || 0 }
+  scheduleLook()
+}
+
+function toggleControl (k) {
+  if (!store.connected || store.session()?.state !== 'online') return
+  send({ t: 'ctl', s: activeSession(), k, on: !store.status?.ctl?.[k] })
+}
+
+function initMapPointer () {
+  canvas.addEventListener('contextmenu', e => e.preventDefault())
+  canvas.addEventListener('pointerdown', event => {
+    if (event.button !== 0 || drag || !store.status) return
+    event.preventDefault()
+    drag = {
+      id: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      last: { x: event.clientX, y: event.clientY },
+      look: { yaw: store.status.yaw || 0, pitch: store.status.pitch || 0 },
+      moved: false
+    }
+    canvas.setPointerCapture(event.pointerId)
+  })
+  canvas.addEventListener('pointermove', event => {
+    if (!drag || event.pointerId !== drag.id) return
+    if (!drag.moved && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) <= DRAG_PX) return
+    if (!drag.moved) {
+      drag.moved = true
+      canvas.classList.add('dragging')
+    }
+    const dx = event.clientX - drag.last.x
+    const dy = event.clientY - drag.last.y
+    drag.last = { x: event.clientX, y: event.clientY }
+    if (store.session()?.state !== 'online') return
+    const sensitivity = 0.006
+    drag.look = {
+      yaw: drag.look.yaw - dx * sensitivity,
+      pitch: Math.max(-Math.PI / 2, Math.min(Math.PI / 2, drag.look.pitch - dy * sensitivity))
+    }
+    pendingLook = drag.look
+    scheduleLook()
+  })
+  const end = event => {
+    if (!drag || event.pointerId !== drag.id) return
+    const done = drag
+    drag = null
+    canvas.classList.remove('dragging')
+    if (event.type === 'pointerup' && !done.moved) mapTap(event)
+  }
+  canvas.addEventListener('pointerup', end)
+  canvas.addEventListener('pointercancel', end)
+  canvas.addEventListener('lostpointercapture', end)
+}
+
 export function initMove () {
   canvas = document.getElementById('map')
   ctx = canvas.getContext('2d')
 
   for (const button of document.querySelectorAll('[data-control]')) bindHoldButton(button, button.dataset.control)
   initKeyboard()
+  initMapPointer()
 
-  // look pad
-  const pad = document.getElementById('look-pad')
-  pad.addEventListener('contextmenu', e => e.preventDefault())
-  pad.addEventListener('pointerdown', event => {
-    if (event.button !== 0 || lookPointer !== null || !store.connected || store.session()?.state !== 'online') return
-    event.preventDefault()
-    lookPointer = event.pointerId
-    dragLook = { yaw: store.status?.yaw || 0, pitch: store.status?.pitch || 0 }
-    lastLookPoint = { x: event.clientX, y: event.clientY }
-    pad.setPointerCapture(event.pointerId)
-  })
-  pad.addEventListener('pointermove', event => {
-    if (event.pointerId !== lookPointer) return
-    const dx = event.clientX - lastLookPoint.x
-    const dy = event.clientY - lastLookPoint.y
-    lastLookPoint = { x: event.clientX, y: event.clientY }
-    const status = store.status || { yaw: 0, pitch: 0 }
-    const base = dragLook || { yaw: status.yaw || 0, pitch: status.pitch || 0 }
-    const sensitivity = 0.006
-    pendingLook = {
-      yaw: base.yaw - dx * sensitivity,
-      pitch: Math.max(-Math.PI / 2, Math.min(Math.PI / 2, base.pitch - dy * sensitivity))
-    }
-    dragLook = pendingLook
-    scheduleLook()
-  })
-  const endLook = event => {
-    if (event.pointerId === lookPointer) lookPointer = null
-  }
-  pad.addEventListener('pointerup', endLook)
-  pad.addEventListener('pointercancel', endLook)
-  pad.addEventListener('lostpointercapture', endLook)
-
-  document.getElementById('turn-left').addEventListener('click', () => {
-    const status = store.status || { yaw: 0, pitch: 0 }
-    pendingLook = { yaw: (status.yaw || 0) + Math.PI / 2, pitch: status.pitch || 0 }
-    scheduleLook()
-  })
-  document.getElementById('turn-right').addEventListener('click', () => {
-    const status = store.status || { yaw: 0, pitch: 0 }
-    pendingLook = { yaw: (status.yaw || 0) - Math.PI / 2, pitch: status.pitch || 0 }
-    scheduleLook()
-  })
-
-  // controls
-  document.getElementById('btn-sprint').addEventListener('click', () => {
-    const on = Boolean(store.status?.ctl?.sprint)
-    send({ t: 'ctl', s: activeSession(), k: 'sprint', on: !on })
-  })
-  document.getElementById('btn-sneak').addEventListener('click', () => {
-    const on = Boolean(store.status?.ctl?.sneak)
-    send({ t: 'ctl', s: activeSession(), k: 'sneak', on: !on })
-  })
-  document.getElementById('btn-interact').addEventListener('click', () => send({ t: 'interact', s: activeSession() }))
-  document.getElementById('btn-use').addEventListener('click', () => send({ t: 'use', s: activeSession() }))
+  document.getElementById('turn-left').addEventListener('click', () => turn(Math.PI / 2))
+  document.getElementById('turn-right').addEventListener('click', () => turn(-Math.PI / 2))
+  document.getElementById('btn-sprint').addEventListener('click', () => toggleControl('sprint'))
+  document.getElementById('btn-sneak').addEventListener('click', () => toggleControl('sneak'))
   document.getElementById('btn-stop').addEventListener('click', () => {
     releaseAllControls(false)
+    hideGotoChip()
     send({ t: 'stop', s: activeSession() })
   })
-
-  // step
-  const stepRow = document.getElementById('step-row')
-  stepRow.querySelectorAll('.stepn').forEach(button => {
-    button.addEventListener('click', () => {
-      stepN = Number(button.dataset.n)
-      stepRow.querySelectorAll('.stepn').forEach(b => b.classList.toggle('active', b === button))
-    })
-  })
-  stepRow.querySelector('[data-n="4"]').classList.add('active')
-  stepRow.querySelectorAll('.step').forEach(button => {
-    button.addEventListener('click', () => send({ t: 'step', s: activeSession(), dir: button.dataset.dir, n: stepN }))
+  document.getElementById('afk-toggle').addEventListener('click', event => {
+    setAntiAfk(event.currentTarget.getAttribute('aria-checked') !== 'true')
   })
 
-  // map
-  canvas.addEventListener('contextmenu', e => e.preventDefault())
-  canvas.addEventListener('click', event => mapTap(event))
   document.getElementById('zoom-in').addEventListener('click', () => {
     zoom = Math.min(4, zoom + 1)
     drawMap()
@@ -262,6 +254,7 @@ export function initMove () {
     send({ t: 'goto', s: activeSession(), x: gotoPending.x, z: gotoPending.z })
     hideGotoChip()
   })
+  document.getElementById('goto-cancel').addEventListener('click', hideGotoChip)
 
   window.addEventListener('resize', resizeCanvas)
   store.on('snapshot', () => {
@@ -279,6 +272,7 @@ export function initMove () {
     drawMap()
   })
   store.on('hello', updateMoveStatus)
+  store.on('servers', updateMoveStatus)
   store.on('sessions', () => {
     if (store.session()?.state !== 'online') releaseAllControls(true)
     updateMoveStatus()
@@ -303,11 +297,26 @@ export function initMove () {
 function updateMoveStatus () {
   const status = store.status
   const online = store.connected && store.session()?.state === 'online'
-  for (const button of document.querySelectorAll('[data-control], #actions button, #step-row button, #turn-left, #turn-right, #goto-go')) button.disabled = !online
-  document.getElementById('btn-sprint').classList.toggle('active', Boolean(status?.ctl?.sprint))
-  document.getElementById('btn-sneak').classList.toggle('active', Boolean(status?.ctl?.sneak))
+  for (const button of document.querySelectorAll('#view-move [data-control], #btn-sprint, #btn-sneak, #btn-stop, #turn-left, #turn-right, #goto-go')) button.disabled = !online
+  for (const k of ['sprint', 'sneak']) {
+    const button = document.getElementById(`btn-${k}`)
+    const on = Boolean(status?.ctl?.[k])
+    button.classList.toggle('active', on)
+    button.setAttribute('aria-pressed', String(on))
+  }
   const target = status?.target
-  document.getElementById('looking-at').textContent = target ? `Looking at: ${target.name}` : 'Looking at: –'
+  document.getElementById('looking-at').textContent = target?.name || 'Nothing'
+  document.getElementById('map-coords').textContent = status ? `${Math.round(status.x)}, ${Math.round(status.y)}, ${Math.round(status.z)}` : ''
+  document.getElementById('map-coords').classList.toggle('hidden', !status)
+  document.getElementById('map-empty').classList.toggle('hidden', Boolean(status))
+  const server = serverFor()
+  const afkOn = server?.antiAfk?.enabled === true
+  const afk = document.getElementById('afk-toggle')
+  afk.setAttribute('aria-checked', String(afkOn))
+  afk.disabled = !server
+  document.getElementById('afk-text').textContent = afkOn
+    ? `A small turn and a jump every ${server.antiAfk.intervalSec || 90} s while you’re not moving. Check the server’s rules first.`
+    : 'A small turn and a jump while you’re not moving. Check the server’s rules first.'
 }
 
 function resizeCanvas () {
@@ -348,7 +357,7 @@ function drawMap () {
   const width = canvas.width
   const height = canvas.height
   ctx.setTransform(1, 0, 0, 1, 0, 0)
-  ctx.fillStyle = '#0e1013'
+  ctx.fillStyle = '#0d0e0f'
   ctx.fillRect(0, 0, width, height)
   const bot = store.status
   if (!bot) return
@@ -364,7 +373,7 @@ function drawMap () {
   // players
   for (const player of store.players) {
     if (typeof player.x !== 'number') continue
-    ctx.fillStyle = '#60a5fa'
+    ctx.fillStyle = '#ecebe8'
     const px = cx + (player.x - bot.x) * scale
     const py = cy + (player.z - bot.z) * scale
     ctx.beginPath()
@@ -375,7 +384,7 @@ function drawMap () {
   ctx.save()
   ctx.translate(cx, cy)
   ctx.rotate(-(bot.yaw || 0))
-  ctx.fillStyle = '#4ade80'
+  ctx.fillStyle = '#e8a43f'
   const size = Math.max(6, 5 * dpr) * zoom / 2
   ctx.beginPath()
   ctx.moveTo(0, -size)
@@ -401,7 +410,7 @@ function mapTap (event) {
     const px = (player.x - bot.x) * scale
     const py = (player.z - bot.z) * scale
     if (Math.hypot(sx - px, sy - py) < 16) {
-      window.dispatchEvent(new CustomEvent('golemlink-toast', { detail: `${player.name}${player.ping != null ? ` · ${player.ping} ms` : ''}` }))
+      window.dispatchEvent(new CustomEvent('golemlink-toast', { detail: `${player.name}${player.ping != null ? `, ${player.ping} ms` : ''}` }))
       return
     }
   }

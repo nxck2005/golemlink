@@ -59,23 +59,53 @@ consistent with it; they are recorded here as required by §1.
 
 ## Web UI
 
-11. **Detail sheet gesture.** Tap = left click and long-press = right click, as
-   specified. To open the item detail sheet there is a "ⓘ Details mode" toggle
-   in the Bag toolbar: while it is on, tapping a slot opens the sheet instead of
-   clicking. This keeps desktop click semantics intact.
+11. **Slot gestures.** Mouse clicks act on press, like the game: left, right,
+    and shift+left for a quick move; hovering shows a tooltip and Q drops. On
+    touch a tap is a left click and a long press (450 ms) opens a menu with
+    left click, right click, shift-click, drop one and drop stack. The old
+    "Details mode" toggle is gone. With no window open, tapping a hotbar slot
+    selects it and tapping the selected slot again uses the item, so opening a
+    server selector is two taps at most.
 
-12. **Autostart.** `autostart` stays a config-file feature; the More tab starts
-    and stops sessions manually. The spec only asks the More tab for
-    start/stop.
+12. **Autostart.** `autostart` stays a config-file feature; the Setup view starts
+    and stops sessions manually. The spec only asks for start/stop there.
 
 13. **`tab` replies vs acks.** A `tab` request produces the `tab` reply; if it
     carried an `id`, an `ack` follows as well.
 
-14. **Map tiles cache.** The bag/map keep decoded tile canvases and drop the
+14. **Map tiles cache.** The map keeps decoded tile canvases and drop the
     oldest beyond 800 entries, so a long session cannot grow without bound.
 
-15. **Player dots.** A tap on a player dot shows `name · ping` as a toast
+15. **Player dots.** A tap on a player dot shows `name, ping` as a toast
     instead of a persistent label.
+
+## Changes from the spec
+
+20. **Password login instead of a URL token.** The spec gated the UI with a
+    token in the URL fragment, which had to be saved and pasted for every
+    device. It is replaced by one username and password (scrypt, N=16384),
+    created with a one-time 6-digit code printed to stdout, and a per-device
+    `HttpOnly` cookie. There is still one owner; golemlink is not multi-user.
+
+21. **Listening beyond loopback.** `--tailscale` (or `http.tailscale`) listens
+    on the Tailscale address as well as 127.0.0.1, and `--bind` adds one other
+    address. This is safe enough now that a password is required, so the
+    warning and the "unsafe" name are gone (`--unsafe-bind` still works). The
+    Host allowlist and 421 replies keep DNS rebinding out. The default port is
+    6767.
+
+22. **Item textures from Mojang at runtime.** Mojang's textures can't be
+    shipped in this repo, so the daemon downloads the client jar for a server's
+    version the first time a bot joins it, keeps only the item and block PNGs
+    and an index, and serves them to signed-in browsers. Items drawn as 3D
+    entity models (chests, beds, shields, heads) keep the letter tile. Server
+    resource packs are not applied. `itemTextures: false` turns this off.
+
+23. **Redesigned UI.** Four views replace the five tabs: Play (held item,
+    hotbar, backpack, armor and the open window together), Chat, Move (map with
+    drag-to-look, WASD) and Setup. On desktop, sessions sit in a left rail and
+    chat in a right column. The step-N-blocks row and the separate look pad
+    were removed from the UI; `step` stays in the protocol.
 
 ## Fake server / e2e
 

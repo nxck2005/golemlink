@@ -8,6 +8,9 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defaultConfig, ensureDataDir } from '../src/config.js'
 import { createHttpServer } from '../src/http.js'
+import { createApi } from '../src/api.js'
+import { Auth, COOKIE_NAME } from '../src/auth.js'
+import { buildAccess } from '../src/access.js'
 import { Sessions } from '../src/sessions.js'
 import { WsHub } from '../src/ws.js'
 import { startFakeServer } from './fake-server.mjs'
@@ -24,7 +27,11 @@ async function until (predicate, message) {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 await fs.mkdir('/tmp/opencode', { recursive: true })
 const dataDir = await fs.mkdtemp('/tmp/opencode/golemlink-movement-')
-const { token } = ensureDataDir(dataDir)
+ensureDataDir(dataDir)
+let setupCode
+const auth = new Auth({ dataDir, onSetupCode: code => { setupCode = code } })
+auth.setupCode()
+const token = await auth.createOwner({ code: setupCode, username: 'movement', password: 'movement-test', remember: true })
 const fake = await startFakeServer()
 const config = defaultConfig()
 config.accounts = [{ id: 'ui', username: 'JoystickTest', auth: 'offline' }]
@@ -34,9 +41,10 @@ const termux = { available: {}, notify () {} }
 const server = http.createServer()
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
 const port = server.address().port
-server.on('request', createHttpServer({ webDir: path.join(root, 'web'), port, logger }))
+const access = buildAccess({ port })
+server.on('request', createHttpServer({ webDir: path.join(root, 'web'), access, auth, api: createApi({ auth, access, logger }), logger }))
 const sessions = new Sessions({ getConfig: () => config, dataDir, logger, termux })
-const hub = new WsHub({ server, port, token, sessions, logger, termux, control: {
+const hub = new WsHub({ server, access, auth, sessions, logger, termux, control: {
   accountsForUi: () => config.accounts, serversForUi: () => config.servers,
   daemonInfo: () => null, startSession: (account, host) => sessions.start(account, host)
 } })
@@ -48,20 +56,22 @@ const errors = []
 try {
   for (const viewport of [{ width: 1366, height: 900 }, { width: 390, height: 844 }]) {
     const context = await browser.newContext({ viewport, hasTouch: true })
+    await context.addCookies([{ name: COOKIE_NAME, value: token, domain: '127.0.0.1', path: '/' }])
     const page = await context.newPage()
     page.on('pageerror', error => errors.push(error.message))
-    await page.goto(`http://127.0.0.1:${port}/#t=${token}`)
-    await page.locator('[data-tab="more"]').click()
-    await page.getByRole('button', { name: 'Start session →' }).click()
+    const view = name => page.evaluate(detail => window.dispatchEvent(new CustomEvent('golemlink-view', { detail })), name)
+    await page.goto(`http://127.0.0.1:${port}/#setup`)
+    await page.locator('#new-session').click()
+    await page.locator('#start-form').getByRole('button', { name: 'Start session' }).click()
     await until(() => sessions.get('ui@test')?.state === 'online', 'bot never came online')
-    await page.locator('[data-tab="move"]').click()
+    await view('move')
     await page.waitForFunction(() => !document.getElementById('btn-jump').disabled)
     const session = sessions.get('ui@test')
     const ctl = key => session.movement.ctlState()[key]
     const released = () => ['forward', 'back', 'left', 'right', 'jump'].every(key => !ctl(key))
-    const box = await page.locator('#move-forward').boundingBox()
-    const x = box.x + box.width / 2
-    const y = box.y + box.height / 2
+    let box = await page.locator('#move-forward').boundingBox()
+    let x = box.x + box.width / 2
+    let y = box.y + box.height / 2
     const point = (id, px, py) => ({ id, x: px, y: py })
 
     const startButton = async () => {
@@ -84,7 +94,7 @@ try {
       const start = { ...fake.position() }
       await sleep(500)
       const end = fake.position()
-      assert.ok(Math.hypot(end.x - start.x, end.z - start.z) < 0.1, 'bot keeps moving after release')
+      assert.ok(Math.hypot(end.x - start.x, end.z - start.z) < 0.1, `bot keeps moving after release: ${JSON.stringify({ start, end, ctl: session.movement.ctlState(), w: page.viewportSize().width })}`)
       assert.equal(session.movement.gotoState, null, 'WASD must not start a map goto')
     }
 
@@ -148,14 +158,14 @@ try {
     await page.keyboard.up('w')
 
     await startKey()
-    await page.locator('[data-tab="chat"]').evaluate(el => el.click())
+    await view('chat')
     await assertStopped()
     await page.keyboard.up('w')
     await page.locator('#chat-input').fill('')
     await page.locator('#chat-input').pressSequentially('wasd')
     assert.ok(released(), 'typing chat must never move the bot')
     assert.equal(await page.locator('#chat-input').inputValue(), 'wasd')
-    await page.locator('[data-tab="move"]').click()
+    await view('move')
 
     await startKey()
     await page.evaluate(() => window.dispatchEvent(new Event('blur')))
@@ -166,7 +176,7 @@ try {
     await page.evaluate(() => {
       const field = document.createElement('input')
       field.id = 'test-typing-field'
-      document.getElementById('tab-move').appendChild(field)
+      document.getElementById('view-move').appendChild(field)
       field.focus()
     })
     await assertStopped()
@@ -177,6 +187,11 @@ try {
 
     // Real touch pointers: the W button's first finger must not block a
     // second finger on Jump. Releasing/cancelling must clear both controls.
+    // Focusing fields may have scrolled the Move view; measure again.
+    await page.locator('#move-forward').scrollIntoViewIfNeeded()
+    box = await page.locator('#move-forward').boundingBox()
+    x = box.x + box.width / 2
+    y = box.y + box.height / 2
     const cdp = await context.newCDPSession(page)
     const finger = point(1, x, y)
     const touch = (type, points) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points })

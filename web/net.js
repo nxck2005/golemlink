@@ -4,41 +4,18 @@ let backoffMs = 1000
 let reconnectTimer = null
 let stopped = false
 
-export function tokenFromUrl () {
-  let token = null
-  try {
-    token = localStorage.getItem('golemlink.token')
-  } catch {}
-  if (location.hash.startsWith('#t=')) {
-    try {
-      token = decodeURIComponent(location.hash.slice(3))
-    } catch {
-      token = null
-    }
-    try {
-      if (token) localStorage.setItem('golemlink.token', token)
-    } catch {}
-    try {
-      history.replaceState(null, '', location.pathname + location.search)
-    } catch {}
-  }
-  return token
-}
-
 export function connect () {
-  const token = tokenFromUrl()
-  if (!token) {
-    store.emit('token-missing')
-    return
-  }
+  stopped = false
+  if (reconnectTimer) clearTimeout(reconnectTimer)
+  reconnectTimer = null
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   const ws = new WebSocket(`${proto}://${location.host}/`)
   store.ws = ws
   ws.addEventListener('open', () => {
     backoffMs = 1000
-    ws.send(JSON.stringify({ t: 'auth', token }))
   })
   ws.addEventListener('message', event => {
+    if (store.ws !== ws) return
     let msg
     try {
       msg = JSON.parse(event.data)
@@ -48,11 +25,14 @@ export function connect () {
     handle(msg)
   })
   ws.addEventListener('close', event => {
+    if (store.ws !== ws) return
     store.connected = false
     store.emit('connection', false)
     if (event.code === 4401) {
-      store.tokenRejected = true
-      store.emit('token-rejected')
+      // The login cookie is missing, expired or was signed out elsewhere.
+      stopped = true
+      store.signedOut = true
+      store.emit('signed-out')
       return
     }
     if (stopped) return
@@ -63,6 +43,18 @@ export function connect () {
     backoffMs = Math.min(10000, backoffMs * 2)
   })
   ws.addEventListener('error', () => {})
+}
+
+export function disconnect () {
+  stopped = true
+  if (reconnectTimer) clearTimeout(reconnectTimer)
+  reconnectTimer = null
+  const ws = store.ws
+  store.ws = null
+  store.connected = false
+  try {
+    ws?.close()
+  } catch {}
 }
 
 export function send (msg) {
@@ -84,6 +76,9 @@ function updateSession (state) {
     session.detail = state.detail
     if (state.retryInMs) session.retryInMs = state.retryInMs
     else delete session.retryInMs
+    session.retryAt = state.retryInMs ? Date.now() + state.retryInMs : null
+    if (state.state === 'online' && !session.onlineAt) session.onlineAt = Date.now()
+    if (state.state !== 'online') session.onlineAt = null
     if (state.state !== 'connecting') delete session.pendingMsa
   }
   store.emit('sessions')
@@ -98,13 +93,14 @@ function handle (msg) {
   switch (msg.t) {
     case 'hello': {
       store.hello = msg
-      store.sessions = msg.sessions || []
+      store.sessions = (msg.sessions || []).map(session => store.stampSession(session))
+      store.textures = msg.textures || []
       store.accounts = msg.accounts || []
       store.servers = msg.servers || []
       store.daemon = msg.daemon || null
       store.features = { ...store.features, ...(msg.features || {}) }
       store.connected = true
-      store.tokenRejected = false
+      store.signedOut = false
       if (!store.sessionId || !store.sessions.some(s => s.id === store.sessionId)) {
         store.setSession(store.sessions[0]?.id || null)
       }
@@ -114,7 +110,7 @@ function handle (msg) {
       break
     }
     case 'sessions':
-      store.sessions = msg.sessions || []
+      store.sessions = (msg.sessions || []).map(session => store.stampSession(session))
       if (!store.sessionId || !store.sessions.some(s => s.id === store.sessionId)) {
         store.setSession(store.sessions[0]?.id || null)
         subscribe()
@@ -180,9 +176,12 @@ function handle (msg) {
     case 'goto':
       if (msg.s === store.sessionId) store.emit('goto', msg)
       break
-    case 'alert':
+    case 'alert': {
+      const session = store.sessions.find(s => s.id === msg.s)
+      if (session) session.lastAlert = { kind: msg.kind, text: msg.text, at: Date.now() }
       store.emit('alert', msg)
       break
+    }
     case 'msa': {
       const session = store.sessions.find(s => s.id === msg.s)
       if (session) {
@@ -201,6 +200,10 @@ function handle (msg) {
       break
     case 'tab':
       store.emit('tab', msg)
+      break
+    case 'textures':
+      store.textures = msg.versions || []
+      store.emit('textures')
       break
     case 'err':
       store.emit('err', msg)

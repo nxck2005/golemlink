@@ -1,7 +1,7 @@
 import { test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from '../web/store.js'
-import { connect, tokenFromUrl } from '../web/net.js'
+import { connect } from '../web/net.js'
 
 class FakeSocket {
   constructor () {
@@ -19,14 +19,14 @@ const originalGlobals = new Map(['WebSocket', 'location', 'localStorage', 'histo
 
 beforeEach(() => {
   globalThis.WebSocket = FakeSocket
-  globalThis.location = { hash: '', protocol: 'http:', host: 'localhost:8765', pathname: '/', search: '' }
-  const saved = new Map([['golemlink.token', 'test-token']])
+  globalThis.location = { hash: '', protocol: 'http:', host: 'localhost:6767', pathname: '/', search: '' }
+  const saved = new Map()
   globalThis.localStorage = { getItem: key => saved.get(key), setItem: (key, value) => saved.set(key, value) }
   globalThis.history = { replaceState: () => { location.hash = '' } }
   store.setSession(null)
   store.sessions = []
   store.connected = false
-  store.tokenRejected = false
+  store.signedOut = false
   connect()
 })
 
@@ -79,16 +79,19 @@ test('state updates preserve reconnect timing and clear completed sign-in prompt
   assert.equal(store.session().retryInMs, undefined)
 })
 
-test('malformed token fragments do not crash startup or replace a saved token', () => {
-  location.hash = '#t=%invalid'
-  assert.equal(tokenFromUrl(), null)
-  assert.equal(localStorage.getItem('golemlink.token'), 'test-token')
-  assert.equal(location.hash, '')
+test('a 4401 close means the login is gone and stops reconnecting', () => {
+  let signedOut = 0
+  const off = store.on('signed-out', () => signedOut++)
+  store.ws.listeners.get('close')({ code: 4401 })
+  off()
+  assert.equal(signedOut, 1)
+  assert.equal(store.signedOut, true)
+  assert.equal(store.connected, false)
 })
 
-test('a new token link overrides storage and removes the fragment', () => {
-  location.hash = '#t=new%2Dtoken'
-  assert.equal(tokenFromUrl(), 'new-token')
-  assert.equal(localStorage.getItem('golemlink.token'), 'new-token')
-  assert.equal(location.hash, '')
+test('hello lists the texture versions the daemon has ready', () => {
+  store.ws.receive({ t: 'hello', sessions: [], textures: ['1.21.11'] })
+  assert.deepEqual(store.textures, ['1.21.11'])
+  store.ws.receive({ t: 'textures', versions: ['1.21.11', '1.20.4'] })
+  assert.deepEqual(store.textures, ['1.21.11', '1.20.4'])
 })

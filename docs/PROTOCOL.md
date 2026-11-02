@@ -1,7 +1,7 @@
 # golemlink WebSocket protocol v1
 
 The daemon serves one WebSocket endpoint on the same port as the web UI
-(`ws://127.0.0.1:8765/` by default). Everything the UI can do goes through it.
+(`ws://127.0.0.1:6767/` by default). Everything the UI can do goes through it.
 The server is authoritative: it validates every field and answers with
 `ack`/`err`.
 
@@ -14,23 +14,54 @@ The server is authoritative: it validates every field and answers with
 
 ## Handshake
 
-1. The client connects. `Origin` must be `http://127.0.0.1:<port>` or
-   `http://localhost:<port>` (plus the `--unsafe-bind` address when used), and
-   `Host` must match one of the same authorities. Otherwise the server completes
-   the WebSocket handshake and immediately closes with code `4401`.
-2. The first client message must be `{"t":"auth","token":"…"}` within 5 s,
-   otherwise the server closes with `4401`. Tokens are compared as SHA-256
-   digests with a constant-time comparison.
-3. On success the server sends `hello`.
+1. The client signs in over HTTP first (see *Sign-in API* below), which sets
+   the `golemlink_login` cookie.
+2. The client connects. `Host` must be one of the daemon's names (127.0.0.1,
+   localhost, its `--bind`/Tailscale addresses and MagicDNS names, or
+   `http.allowedHosts`) with the port, and `Origin` must be `http://` or
+   `https://` plus one of those. The upgrade must carry a valid login cookie.
+   If any check fails, the server completes the WebSocket handshake and
+   immediately closes with code `4401`.
+3. On success the server sends `hello` straight away. There is no `auth`
+   message. When a device is signed out (from Setup, a password change, or
+   `reset-password`), its open sockets are closed with `4401`.
+
+## Sign-in API
+
+JSON over HTTP on the same port. Requests other than `GET` need an allowed
+`Origin`, `Content-Type: application/json` and a body of at most 8 KB. Errors
+are `{"error":"<code>","message":"…"}` with a 4xx status.
+
+| Request | Body | Result |
+|---|---|---|
+| `GET /api/me` | | `{setUp, signedIn, username?, login?}`. Before the first login exists this also prints a setup code to the daemon's stdout. |
+| `POST /api/setup` | `{code, username, password, remember}` | Creates the one login and signs this device in. `403 bad_code` for a wrong or expired code; after 5 wrong codes a new one is printed. |
+| `POST /api/login` | `{username, password, remember}` | Signs in. `401 bad_login`; `429 rate_limited` with `retryAfter` after 5 failures per IP or 20 overall in a minute. |
+| `POST /api/logout` | `{}` | Signs this device out and clears the cookie. |
+| `POST /api/password` | `{current, next}` | Changes the password and signs every other device out. |
+| `GET /api/logins` | | `{logins:[{id,label,ip,created,lastUsed,remember,current}]}`; `id` is 16 hex characters. |
+| `DELETE /api/logins/<id>` | | Signs that device out. |
+
+The cookie is `HttpOnly`, `SameSite=Strict`, `Path=/`, and `Secure` when the
+request came over HTTPS (directly, or `X-Forwarded-Proto: https` from a
+loopback proxy). With `remember` it lasts 90 days from last use; without it is
+a browser-session cookie and the login expires after 7 idle days. The daemon
+stores only the SHA-256 of each cookie value.
+
+`GET /textures/<version>/…` serves item textures (see the README) and needs the
+same cookie.
 
 ### `hello`
 
 ```json
 {
-  "t": "hello", "v": 1,
+  "t": "hello", "v": 1, "user": "nick",
   "sessions": [ { "id": "main@lobby", "account": "main", "server": "lobby",
                   "state": "online", "reason": null, "detail": null,
-                  "pendingMsa": null } ],
+                  "pendingMsa": null, "onlineSince": 1767000000000,
+                  "onlineMs": 3600000, "retryInMs": null, "version": "1.21.11",
+                  "lastAlert": null } ],
+  "textures": ["1.21.11"],
   "accounts": [ { "id": "main", "auth": "microsoft", "username": "you@example.com" } ],
   "servers":  [ { "id": "lobby", "name": "My network", "host": "play.example.net",
                   "port": 25565, "version": "auto", "autoReconnect": true,
@@ -47,7 +78,15 @@ The server is authoritative: it validates every field and answers with
 ```
 
 Passwords never appear in `hello`: `servers[].hasAutoLogin` is the only exposed
-bit. Config updates are announced with `accounts` and `servers` messages (see
+bit. `user` is the signed-in web username. `textures` lists the Minecraft
+versions whose item textures are ready.
+
+Session entries (in `hello` and `sessions`): `onlineMs` is how long the bot has
+been online and `retryInMs` how long until the next reconnect attempt, both
+relative to when the message was sent, so a browser with a wrong clock still
+counts correctly. `onlineSince` is the daemon's own timestamp. `version` is the
+server's Minecraft version while online. `lastAlert` is the last
+`{kind, text, at}` alert for that session, or `null`. Config updates are announced with `accounts` and `servers` messages (see
 below), which are v1 extensions to the spec table.
 
 ## Client → server
@@ -91,11 +130,11 @@ below), which are v1 extensions to the spec table.
 
 | t | payload |
 |---|---|
-| `sessions` | full session list, sent to every authenticated client on any lifecycle change |
+| `sessions` | full session list, sent to every signed-in client on any lifecycle change |
 | `state` | `s`, `state` (`connecting`,`online`,`reconnecting`,`stopped`), `reason`, `detail`, `retryInMs?` |
 | `snapshot` | `s`, `state`, `reason`, `detail`, `status`, `inventory`, `window`, `cursor`, `chat`, `players`, `features` |
 | `chat` | `s`, `ts`, `plain`, `segs`, `echo?` |
-| `status` | `s`, `x,y,z,yaw,pitch,dim,hp,food,sat,xpLvl,xpProgress,gm,quick,actionbar,target,ctl` (5 Hz) |
+| `status` | `s`, `x,y,z,yaw,pitch,dim,hp,food,sat,xpLvl,xpProgress,gm,quick,ping,actionbar,target,ctl` (5 Hz) |
 | `inv` | `s`, `window`, `slots` delta `{ "<slot>": item \| null }`, `cursor?` (debounced 50 ms) |
 | `window` | `s`, a window object or `null` |
 | `tiles` | `s`, `[{cx,cz,rgb}]` (at most 32 per message) |
@@ -108,8 +147,9 @@ below), which are v1 extensions to the spec table.
 | `tab` | `s`, `items` (reply to `tab`) |
 | `accounts` | `accounts` — config extension: sent after account changes |
 | `servers` | `servers` — config extension: sent after server changes |
+| `textures` | `versions` — item textures finished downloading for a version |
 
-Routing: `sessions`, `alert` and `msa` go to every authenticated client.
+Routing: `sessions`, `alert`, `msa` and `textures` go to every signed-in client.
 Everything else goes only to that session's subscribers.
 
 ### Backpressure
@@ -161,8 +201,7 @@ along x (west to east).
 
 ## Error codes
 
-`bad_message`, `bad_json`, `unknown_type`, `bad_field`, `auth_required`,
-`bad_token`, `rate_limited`, `internal`, `no_session`, `no_account`,
+`bad_message`, `bad_json`, `unknown_type`, `bad_field`, `rate_limited`, `internal`, `no_session`, `no_account`,
 `no_server`, `already_running`, `session_limit`, `not_online`, `too_long`,
 `illegal_characters`, `chat_failed`, `tab_failed`, `goto_unavailable`,
 `goto_range`, `unsupported_mode`, `stale_window`, `bad_slot`, `cursor_busy`,

@@ -27,8 +27,8 @@ test('material tints follow the spec keywords', () => {
 })
 
 test('dark chat colors are lightened to at least 4.5:1 contrast', () => {
-  // #0e1013 is the app background from style.css
-  const bg = [14, 16, 19]
+  // #1a1b1d is the chat panel surface from style.css
+  const bg = [26, 27, 29]
   const lum = rgb => {
     const ch = v => {
       const c = v / 255
@@ -46,9 +46,11 @@ test('dark chat colors are lightened to at least 4.5:1 contrast', () => {
 })
 
 test('the UI has no inline scripts, handlers or external resources (CSP)', () => {
-  const files = ['index.html', 'app.js', 'store.js', 'net.js', 'chat.js', 'move.js', 'keyboard.js', 'bag.js', 'more.js', 'items.js']
+  const files = fs.readdirSync(webDir).filter(file => /\.(html|js|css)$/.test(file))
+  for (const name of ['index.html', 'app.js', 'play.js', 'setup.js', 'login.js', 'format.js', 'items.js']) assert.ok(files.includes(name), name)
   for (const file of files) {
-    const text = fs.readFileSync(path.join(webDir, file), 'utf8')
+    // The SVG namespace is an identifier, not a request.
+    const text = fs.readFileSync(path.join(webDir, file), 'utf8').replaceAll('http://www.w3.org/2000/svg', '')
     assert.ok(!/https?:\/\/(?!127\.0\.0\.1|localhost)/.test(text), `${file} references an external URL`)
   }
   const html = fs.readFileSync(path.join(webDir, 'index.html'), 'utf8')

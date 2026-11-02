@@ -1,5 +1,6 @@
-// Item tile and text-contrast helpers. No textures, no inline styles:
-// everything is set through CSSOM properties.
+// Item tiles and text-contrast helpers. Items draw from the vanilla
+// textures the daemon unpacked for the session's Minecraft version, and fall
+// back to a two-letter tile. No inline styles: everything goes through CSSOM.
 
 const MATERIALS = [
   [/^diamond|diamond_/, '#7dd3fc'],
@@ -52,7 +53,8 @@ function parseHex (hex) {
   return [(value >> 16) & 255, (value >> 8) & 255, value & 255]
 }
 
-const BG_LUM = luminance([14, 16, 19])
+// Chat sits on the surface color, #1a1b1d.
+const BG_LUM = luminance([26, 27, 29])
 const TEXT = [231, 233, 238]
 
 // Lighten a chat colour until it has at least 4.5:1 contrast on the app
@@ -71,33 +73,208 @@ export function ensureContrast (hex) {
   return `rgb(${mixed.join(',')})`
 }
 
+// --- textures --------------------------------------------------------------
+let texVersion = null
+let texIndex = null
+const images = new Map() // texture id -> Promise<HTMLImageElement|null>
+const rendered = new Map() // item name -> Promise<string|null> (data URL)
+const waiting = new Map() // item name -> Set of tiles to fill in
+let onIndex = () => {}
+
+export function onTexturesLoaded (fn) {
+  onIndex = fn
+}
+
+// Point item drawing at one Minecraft version's textures. Only the index is
+// fetched here; each PNG loads the first time an item that needs it shows.
+export function useTextures (version) {
+  if (version === texVersion) return
+  texVersion = version
+  texIndex = null
+  images.clear()
+  rendered.clear()
+  if (!version) return
+  fetch(`textures/${encodeURIComponent(version)}/index.json`, { credentials: 'same-origin' })
+    .then(res => res.ok ? res.json() : null)
+    .then(json => {
+      if (texVersion !== version || !json?.items) return
+      texIndex = json.items
+      onIndex()
+    })
+    .catch(() => {})
+}
+
+export function texturesVersion () {
+  return texIndex ? texVersion : null
+}
+
+function loadImage (id) {
+  if (!images.has(id)) {
+    images.set(id, new Promise(resolve => {
+      const img = new Image()
+      img.onload = () => resolve(img)
+      img.onerror = () => resolve(null)
+      img.src = `textures/${encodeURIComponent(texVersion)}/${id}.png`
+    }))
+  }
+  return images.get(id)
+}
+
+// Grayscale textures the game colors by biome or dye.
+const TINTS = [
+  [/^block\/(grass_block_top|short_grass|tall_grass_(top|bottom)|fern|large_fern_(top|bottom)|sugar_cane)$/, '#7cbd6b'],
+  [/^block\/spruce_leaves$/, '#619961'],
+  [/^block\/birch_leaves$/, '#80a755'],
+  [/^block\/(oak|jungle|acacia|dark_oak|mangrove)_leaves$|^block\/vine$/, '#59ae30'],
+  [/^block\/lily_pad$/, '#208030'],
+  [/^item\/leather_(helmet|chestplate|leggings|boots|horse_armor)$/, '#a06540'],
+  [/^item\/potion_overlay$|^item\/splash_potion_overlay|^item\/lingering_potion_overlay/, '#385dc6'],
+  [/^item\/tipped_arrow_head$/, '#385dc6']
+]
+
+function tintFor (id) {
+  for (const [pattern, color] of TINTS) if (pattern.test(id)) return color
+  return null
+}
+
+// Draws the first animation frame of a texture, tinted if the game tints it.
+function frame (img, id) {
+  const size = img.width || 16
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')
+  ctx.imageSmoothingEnabled = false
+  ctx.drawImage(img, 0, 0, size, size, 0, 0, size, size)
+  const tint = tintFor(id)
+  if (tint) {
+    ctx.globalCompositeOperation = 'multiply'
+    ctx.fillStyle = tint
+    ctx.fillRect(0, 0, size, size)
+    ctx.globalCompositeOperation = 'destination-in'
+    ctx.drawImage(img, 0, 0, size, size, 0, 0, size, size)
+  }
+  return canvas
+}
+
+async function renderFlat (layers) {
+  const imgs = await Promise.all(layers.map(loadImage))
+  if (!imgs[0]) return null
+  const size = imgs[0].width || 16
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')
+  ctx.imageSmoothingEnabled = false
+  imgs.forEach((img, i) => {
+    if (img) ctx.drawImage(frame(img, layers[i]), 0, 0, size, size)
+  })
+  return canvas.toDataURL()
+}
+
+// An isometric block: top, left (north) and right (east) faces, with the
+// sides shaded like the game's inventory lighting.
+async function renderCube ([topId, leftId, rightId]) {
+  const [top, left, right] = await Promise.all([topId, leftId, rightId].map(loadImage))
+  if (!top || !left || !right) return null
+  const S = 64
+  const canvas = document.createElement('canvas')
+  canvas.width = S
+  canvas.height = S
+  const ctx = canvas.getContext('2d')
+  ctx.imageSmoothingEnabled = false
+  const k = S / 32 // pixels per texel step
+  const faces = [
+    [frame(top, topId), [k, -k / 2, k, k / 2, 0, S / 4], 0],
+    [frame(left, leftId), [k, k / 2, 0, k * 1.0, 0, S / 4], 0.22],
+    [frame(right, rightId), [k, -k / 2, 0, k * 1.0, S / 2, S / 2], 0.4]
+  ]
+  for (const [face, m, shade] of faces) {
+    const scale = 16 / face.width
+    ctx.setTransform(m[0] * scale, m[1] * scale, m[2] * scale, m[3] * scale, m[4], m[5])
+    ctx.drawImage(face, 0, 0)
+    if (shade) {
+      ctx.fillStyle = `rgba(0,0,0,${shade})`
+      ctx.fillRect(0, 0, face.width, face.height)
+    }
+  }
+  return canvas.toDataURL()
+}
+
+function textureFor (name) {
+  if (!texIndex) return null
+  const entry = texIndex[name]
+  if (!entry) return null
+  if (!rendered.has(name)) {
+    const job = (entry.cube ? renderCube(entry.cube) : renderFlat(entry.flat)).catch(() => null)
+    rendered.set(name, job)
+    job.then(url => {
+      const tiles = waiting.get(name)
+      waiting.delete(name)
+      if (!url || !tiles) return
+      for (const tile of tiles) if (tile.isConnected) paintTexture(tile, url, Boolean(entry.flat))
+    })
+  }
+  return rendered.get(name)
+}
+
+function paintTexture (tile, url, flat) {
+  tile.textContent = ''
+  tile.classList.add('tex')
+  tile.classList.toggle('flat', flat)
+  tile.style.background = ''
+  const img = document.createElement('img')
+  img.alt = ''
+  img.draggable = false
+  img.src = url
+  tile.appendChild(img)
+}
+
+function itemKey (name) {
+  return String(name || '').replace(/^minecraft:/, '')
+}
+
+// A slot's contents: the item picture plus count and durability overlays.
 export function itemTile (item, { showCount = true } = {}) {
-  const tile = document.createElement('div')
-  tile.className = 'tile'
-  if (!item) return tile
-  tile.style.background = materialTint(item.n)
-  const code = document.createElement('span')
-  code.className = 'code'
-  code.textContent = itemCode(item.n)
-  tile.appendChild(code)
+  const frag = document.createDocumentFragment()
+  if (!item) return frag
+  const name = itemKey(item.n)
+  const tile = document.createElement('span')
+  tile.className = 'item'
   if (item.ench) tile.classList.add('ench')
-  if (item.dur && item.dur[1] > 0) {
-    const dur = document.createElement('div')
+  tile.style.background = materialTint(name)
+  tile.textContent = itemCode(name)
+  frag.appendChild(tile)
+  const job = textureFor(name)
+  if (job) {
+    if (!waiting.has(name)) waiting.set(name, new Set())
+    waiting.get(name).add(tile)
+    job.then(url => {
+      if (url && tile.isConnected && !tile.classList.contains('tex')) paintTexture(tile, url, Boolean(texIndex?.[name]?.flat))
+    })
+  }
+  if (item.dur && item.dur[1] > 0 && item.dur[0] > 0) {
+    const dur = document.createElement('span')
     dur.className = 'dur'
-    const fill = document.createElement('span')
+    const fill = document.createElement('i')
     const left = 1 - Math.min(1, item.dur[0] / item.dur[1])
     fill.style.width = `${Math.max(0, Math.round(left * 100))}%`
-    fill.style.background = left < 0.25 ? 'var(--danger)' : left < 0.5 ? 'var(--warn)' : 'var(--accent)'
+    fill.style.background = `hsl(${Math.round(left * 120)}, 70%, 50%)`
     dur.appendChild(fill)
-    tile.appendChild(dur)
+    frag.appendChild(dur)
   }
   if (showCount && item.c > 1) {
     const count = document.createElement('span')
     count.className = 'count'
     count.textContent = String(item.c)
-    tile.appendChild(count)
+    frag.appendChild(count)
   }
-  return tile
+  return frag
+}
+
+export function itemName (item) {
+  if (!item) return ''
+  return item.cn || item.d || itemKey(item.n).replace(/_/g, ' ').replace(/^./, c => c.toUpperCase())
 }
 
 export function itemLabel (item) {
