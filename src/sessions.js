@@ -7,14 +7,19 @@ function fail (code, msg) {
 }
 
 export class Sessions {
-  constructor ({ getConfig, dataDir, logger, termux, hub }) {
+  constructor ({ getConfig, dataDir, logger, termux, hub, textures }) {
     this.getConfig = getConfig
+    this.textures = textures
     this.dataDir = dataDir
     this.logger = logger
     this.termux = termux
     this.hub = hub
     this.sessions = new Map()
     this.authChains = new Map()
+  }
+
+  onOnline (session) {
+    this.textures?.ensure(session.bot?.version)
   }
 
   get supportedVersions () {

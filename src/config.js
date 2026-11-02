@@ -1,11 +1,12 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import crypto from 'node:crypto'
+import net from 'node:net'
 
 export const ID_RE = /^[a-z0-9_-]{1,32}$/
 export const SESSION_ID_RE = /^[a-z0-9_-]{1,32}@[a-z0-9_-]{1,32}$/
 export const CONFIG_VERSION = 1
+export const DEFAULT_PORT = 6767
 
 export const SHARED_STORAGE_ROOTS = ['/sdcard', '/storage']
 
@@ -18,7 +19,7 @@ export function expandHome (p) {
 export function defaultConfig () {
   return {
     version: CONFIG_VERSION,
-    http: { port: 8765 },
+    http: { port: DEFAULT_PORT },
     accounts: [],
     servers: [],
     autostart: [],
@@ -76,25 +77,10 @@ export function ensureDataDir (dir) {
   ensureDir(dir, 0o700)
   ensureDir(path.join(dir, 'auth'), 0o700)
   ensureDir(path.join(dir, 'logs'), 0o700)
-  return { token: loadOrCreateToken(dir) }
-}
-
-export function tokenPath (dir) {
-  return path.join(dir, 'token')
-}
-
-export function loadOrCreateToken (dir) {
-  const file = tokenPath(dir)
+  // The old URL token is replaced by password logins.
   try {
-    const existing = fs.readFileSync(file, 'utf8').trim()
-    if (existing.length > 0) return existing
+    fs.unlinkSync(path.join(dir, 'token'))
   } catch {}
-  const token = crypto.randomBytes(32).toString('base64url')
-  fs.writeFileSync(file, token + '\n', { mode: 0o600 })
-  try {
-    fs.chmodSync(file, 0o600)
-  } catch {}
-  return token
 }
 
 export function configPath (dir) {
@@ -124,6 +110,15 @@ export function saveConfig (dir, config) {
   } catch {}
   fs.renameSync(tmp, file)
   return file
+}
+
+const HOST_RE = /^[a-z0-9.-]{1,253}(:\d{1,5})?$/i
+
+export function isBindAddress (value) {
+  if (typeof value !== 'string') return false
+  const ip = value.trim()
+  if (ip === '' || ip === '0.0.0.0' || ip === '::' || ip === '[::]') return false
+  return net.isIP(ip) !== 0
 }
 
 function isPlainObject (value) {
@@ -289,19 +284,39 @@ export function validateConfig (raw) {
     errors.push(`config.version ${version} is newer than this daemon supports (${CONFIG_VERSION})`)
   }
 
-  const config = { ...copyUnknown(raw, ['version', 'http', 'accounts', 'servers', 'autostart', 'minimap', 'deadmanMs', 'termux']) }
+  const config = { ...copyUnknown(raw, ['version', 'http', 'accounts', 'servers', 'autostart', 'minimap', 'deadmanMs', 'termux', 'itemTextures']) }
   config.version = CONFIG_VERSION
 
   const http = isPlainObject(raw.http) ? raw.http : {}
-  const httpOut = { ...copyUnknown(http, ['port']) }
+  const httpOut = { ...copyUnknown(http, ['port', 'tailscale', 'bind', 'allowedHosts']) }
   if (http.port === undefined) {
-    httpOut.port = 8765
+    httpOut.port = DEFAULT_PORT
   } else if (!Number.isInteger(http.port) || http.port < 1 || http.port > 65535) {
     errors.push('http.port must be an integer between 1 and 65535')
   } else {
     httpOut.port = http.port
   }
+  if (http.tailscale !== undefined) {
+    if (typeof http.tailscale !== 'boolean') errors.push('http.tailscale must be true or false')
+    else httpOut.tailscale = http.tailscale
+  }
+  if (http.bind !== undefined && http.bind !== null) {
+    if (typeof http.bind !== 'string' || !isBindAddress(http.bind)) errors.push('http.bind must be one interface IP address, not 0.0.0.0 or ::')
+    else httpOut.bind = http.bind
+  }
+  if (http.allowedHosts !== undefined) {
+    if (!Array.isArray(http.allowedHosts) || !http.allowedHosts.every(h => typeof h === 'string' && HOST_RE.test(h))) {
+      errors.push('http.allowedHosts must be an array of host names, optionally with :port')
+    } else {
+      httpOut.allowedHosts = http.allowedHosts.map(h => h.toLowerCase())
+    }
+  }
   config.http = httpOut
+
+  if (raw.itemTextures !== undefined) {
+    if (typeof raw.itemTextures !== 'boolean') errors.push('itemTextures must be true or false')
+    else config.itemTextures = raw.itemTextures
+  }
 
   config.accounts = []
   if (raw.accounts !== undefined && !Array.isArray(raw.accounts)) {

@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   validateConfig, validateServer, validateAccount, loadConfig, saveConfig,
-  ensureDataDir, loadOrCreateToken, tokenPath, assertNotSharedStorage, resolveDataDir,
+  ensureDataDir, assertNotSharedStorage, resolveDataDir, isBindAddress,
   applyServerUpdate, sanitizeServer, ID_RE
 } from '../src/config.js'
 
@@ -25,7 +25,7 @@ test('validateConfig fills defaults and reports errors', () => {
   })
   assert.equal(errors.length, 0)
   assert.equal(config.version, 1)
-  assert.equal(config.http.port, 8765)
+  assert.equal(config.http.port, 6767)
   assert.equal(config.servers[0].port, 25565)
   assert.equal(config.servers[0].version, 'auto')
   assert.equal(config.servers[0].autoReconnect, true)
@@ -85,9 +85,11 @@ test('autoLogin password merge semantics', () => {
   assert.equal(safe.hasAutoLogin, true)
 })
 
-test('atomic write, file modes, token', () => {
+test('atomic write, file modes, old token removed', () => {
   const dir = tempDir()
+  fs.writeFileSync(path.join(dir, 'token'), 'old-url-token\n')
   ensureDataDir(dir)
+  assert.equal(fs.existsSync(path.join(dir, 'token')), false)
   const config = validateConfig({ accounts: [{ id: 'a', auth: 'offline', username: 'x' }] }).config
   saveConfig(dir, config)
   assert.equal(fs.statSync(path.join(dir, 'config.json')).mode & 0o777, 0o600)
@@ -96,12 +98,6 @@ test('atomic write, file modes, token', () => {
   const loaded = loadConfig(dir)
   assert.equal(loaded.errors.length, 0)
   assert.equal(loaded.config.accounts[0].id, 'a')
-
-  const token1 = loadOrCreateToken(dir)
-  const token2 = loadOrCreateToken(dir)
-  assert.equal(token1, token2)
-  assert.equal(token1.length, 43) // 32 bytes base64url
-  assert.equal(fs.statSync(tokenPath(dir)).mode & 0o777, 0o600)
 })
 
 test('invalid config load reports clear errors', () => {
@@ -149,4 +145,16 @@ test('account username is required', () => {
   const errors = []
   validateAccount({ id: 'a', auth: 'microsoft', username: '' }, { errors })
   assert.ok(errors.some(e => e.includes('username')))
+})
+
+test('http binding options are validated', () => {
+  const good = validateConfig({ http: { tailscale: true, bind: '100.64.1.2', allowedHosts: ['Confessor', 'box.example.ts.net:443'] } })
+  assert.deepEqual(good.errors, [])
+  assert.equal(good.config.http.tailscale, true)
+  assert.equal(good.config.http.bind, '100.64.1.2')
+  assert.deepEqual(good.config.http.allowedHosts, ['confessor', 'box.example.ts.net:443'])
+  const bad = validateConfig({ http: { tailscale: 'yes', bind: '0.0.0.0', allowedHosts: ['bad host'] } })
+  assert.equal(bad.errors.length, 3)
+  for (const ip of ['0.0.0.0', '::', '', 'not-an-ip']) assert.equal(isBindAddress(ip), false, ip)
+  for (const ip of ['100.67.54.111', '192.168.1.5', 'fd7a:115c:a1e0::1']) assert.equal(isBindAddress(ip), true, ip)
 })

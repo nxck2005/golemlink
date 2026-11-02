@@ -7,10 +7,15 @@ import { createRequire } from 'node:module'
 import { monitorEventLoopDelay } from 'node:perf_hooks'
 import { createLogger } from './log.js'
 import {
-  resolveDataDir, ensureDataDir, loadConfig, saveConfig, configPath,
+  resolveDataDir, ensureDataDir, loadConfig, saveConfig, configPath, isBindAddress, DEFAULT_PORT,
   validateServer, applyServerUpdate, sanitizeAccount, sanitizeServer, validateAccount
 } from './config.js'
 import { createHttpServer } from './http.js'
+import { createApi } from './api.js'
+import { Auth } from './auth.js'
+import { buildAccess } from './access.js'
+import { detectTailscale } from './tailscale.js'
+import { Textures } from './textures.js'
 import { WsHub } from './ws.js'
 import { Sessions } from './sessions.js'
 import { createTermux } from './termux.js'
@@ -22,7 +27,7 @@ const mineflayerPkg = require('mineflayer/package.json')
 const pathfinderPkg = require('mineflayer-pathfinder/package.json')
 
 function parseArgs (argv) {
-  const args = { port: null, dataDir: null, open: false, printUrl: false, unsafeBind: null, help: false }
+  const args = { command: null, port: null, dataDir: null, open: false, tailscale: false, bind: null, help: false }
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     const [key, inline] = arg.split('=')
@@ -31,23 +36,23 @@ function parseArgs (argv) {
       case '--port': args.port = Number(next()); break
       case '--data-dir': args.dataDir = next(); break
       case '--open': args.open = true; break
-      case '--print-url': args.printUrl = true; break
-      case '--unsafe-bind': args.unsafeBind = next(); break
+      case '--tailscale': args.tailscale = true; break
+      case '--bind':
+      case '--unsafe-bind': args.bind = String(next() ?? ''); break
       case '--help':
       case '-h': args.help = true; break
       default:
-        if (key.startsWith('-')) {
-          throw new Error(`unknown option ${key}`)
-        }
+        if (key.startsWith('-')) throw new Error(`unknown option ${key}`)
+        if (args.command) throw new Error(`unexpected argument ${key}`)
+        if (key !== 'reset-password') throw new Error(`unknown command ${key}`)
+        args.command = key
     }
   }
   if (args.port !== null && (!Number.isInteger(args.port) || args.port < 1 || args.port > 65535)) {
     throw new Error('--port must be an integer between 1 and 65535')
   }
-  if (args.unsafeBind !== null) {
-    if (args.unsafeBind === '0.0.0.0' || args.unsafeBind === '::' || args.unsafeBind.trim() === '') {
-      throw new Error('--unsafe-bind needs one specific interface address, not 0.0.0.0 or ::')
-    }
+  if (args.bind !== null && !isBindAddress(args.bind)) {
+    throw new Error('--bind needs one interface IP address, not 0.0.0.0 or ::')
   }
   return args
 }
@@ -81,13 +86,22 @@ function checkExistingPid (file) {
 function usage () {
   return [
     'Usage: node src/main.js [options]',
-    '  --port <port>          HTTP/WebSocket port (default from config, 8765)',
+    '       node src/main.js reset-password',
+    '  --tailscale            also listen on this machine\'s Tailscale address',
+    '  --bind <ip>            also listen on one interface address',
+    '  --port <port>          HTTP/WebSocket port (default from config, 6767)',
     '  --data-dir <dir>       data directory (default ~/.golemlink)',
-    '  --open                 open the tokened URL on this device (Termux)',
-    '  --print-url            print the tokened URL and exit',
-    '  --unsafe-bind <ip>     bind one non-loopback interface address (dangerous)',
-    '  -h, --help             show this help'
+    '  --open                 open the web UI on this device (Termux)',
+    '  -h, --help             show this help',
+    '',
+    'reset-password removes the web login and signs out every device; the next',
+    'start prints a setup code for creating a new one.'
   ].join('\n')
+}
+
+function printSetupCode (code, expires) {
+  const minutes = Math.round((expires - Date.now()) / 60000)
+  console.log(`golemlink: setup code ${code.slice(0, 3)} ${code.slice(3)} (valid for ${minutes} minutes, works once)`)
 }
 
 async function main () {
@@ -122,7 +136,14 @@ async function main () {
     })
   }
 
-  const { token } = ensureDataDir(dataDir)
+  ensureDataDir(dataDir)
+  if (args.command === 'reset-password') {
+    const auth = new Auth({ dataDir })
+    auth.reset()
+    console.log('golemlink: the web login is removed and every device is signed out.')
+    console.log('Restart golemlink; it prints a setup code for creating a new login.')
+    return
+  }
   const { config, errors, created } = loadConfig(dataDir)
   if (errors.length > 0) {
     console.error(`invalid config at ${configPath(dataDir)}:`)
@@ -132,15 +153,22 @@ async function main () {
   if (args.port !== null) config.http.port = args.port
   if (created) saveConfig(dataDir, config)
 
-  const port = args.port !== null ? args.port : (config.http.port || 8765)
-  const bindHost = args.unsafeBind || '127.0.0.1'
-  const printHost = args.unsafeBind || '127.0.0.1'
-  const url = `http://${printHost}:${port}/#t=${token}`
-
-  if (args.printUrl) {
-    console.log(url)
-    return
+  const port = args.port !== null ? args.port : (config.http.port || DEFAULT_PORT)
+  const binds = []
+  let tailnetNames = []
+  if (args.tailscale || config.http.tailscale === true) {
+    const found = await detectTailscale()
+    if (!found.address) {
+      console.error('golemlink: --tailscale found no Tailscale IPv4 address on this machine. Is Tailscale up? (tailscale status)')
+      process.exit(1)
+    }
+    binds.push(found.address)
+    tailnetNames = found.names
   }
+  const bind = args.bind || config.http.bind
+  if (bind && !binds.includes(bind)) binds.push(bind)
+  const listenHosts = ['127.0.0.1', ...binds.filter(ip => ip !== '127.0.0.1')]
+  const access = buildAccess({ port, binds, names: tailnetNames, extraHosts: config.http.allowedHosts || [] })
 
   const pidFile = path.join(dataDir, 'daemon.pid')
   try {
@@ -173,24 +201,35 @@ async function main () {
     wakeLock: config.termux.wakeLock !== false
   })
 
+  let hub
+  const auth = new Auth({
+    dataDir,
+    logger,
+    onSetupCode: (code, expires) => {
+      printSetupCode(code, expires)
+      logger.info('a new setup code was printed to the terminal')
+    },
+    onRevoke: id => hub?.closeLogin(id)
+  })
+  // Item textures come from Mojang's client jar, downloaded on first use.
+  const textures = config.itemTextures === false
+    ? null
+    : new Textures({
+      dataDir,
+      logger,
+      onReady: () => hub?.broadcast({ t: 'textures', versions: textures.ready() })
+    })
+
   const webDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'web')
-  const httpServer = http.createServer(createHttpServer({ webDir, port, unsafeBind: args.unsafeBind, logger }))
+  const handler = createHttpServer({ webDir, access, auth, textures, api: createApi({ auth, access, logger }), logger })
+  const httpServers = listenHosts.map(() => http.createServer(handler))
 
   let sessions
-  const hub = new WsHub({
-    server: httpServer,
-    host: bindHost,
-    port,
-    unsafeBind: args.unsafeBind,
-    token,
-    sessions: null,
-    logger,
-    control: {},
-    termux
-  })
+  hub = new WsHub({ access, auth, sessions: null, logger, control: {}, termux, textures })
+  for (const server of httpServers) hub.servers.push(server)
 
   const getConfig = () => config
-  sessions = new Sessions({ getConfig, dataDir, logger, termux, hub })
+  sessions = new Sessions({ getConfig, dataDir, logger, termux, hub, textures })
   hub.sessions = sessions
 
   Object.assign(hub.control, {
@@ -256,29 +295,28 @@ async function main () {
 
   hub.attach()
 
-  await new Promise((resolve, reject) => {
-    httpServer.once('error', reject)
-    httpServer.listen(port, bindHost, () => resolve())
-  }).catch(err => {
-    logger.error(`cannot listen on ${bindHost}:${port}: ${err.message}`)
-    try { fs.unlinkSync(pidFile) } catch {}
-    process.exit(1)
-  })
-
-  logger.info(`golemlink ${pkg.version} listening on ${bindHost}:${port}`)
-  logger.info(`supported Minecraft versions: ${supportedRange()}`)
-  if (args.unsafeBind) {
-    logger.warn(`UNSAFE BIND: the web UI is reachable from ${args.unsafeBind}. Anyone who can reach the port and read the token has full control of the bots. Prefer an SSH tunnel.`)
+  for (const [i, host] of listenHosts.entries()) {
+    await new Promise((resolve, reject) => {
+      httpServers[i].once('error', reject)
+      httpServers[i].listen(port, host, () => resolve())
+    }).catch(err => {
+      logger.error(`cannot listen on ${host}:${port}: ${err.message}`)
+      try { fs.unlinkSync(pidFile) } catch {}
+      process.exit(1)
+    })
   }
-  // Printed to stdout only: never through the logger, so the token never
-  // lands in daemon.log.
-  console.log(`golemlink: open ${url}`)
 
-  if (args.unsafeBind) {
-    console.warn('WARNING: --unsafe-bind exposes the daemon beyond localhost. Prefer: ssh -L ' + port + ':127.0.0.1:' + port + ' <phone>')
+  logger.info(`golemlink ${pkg.version} listening on ${listenHosts.map(h => `${h}:${port}`).join(', ')}`)
+  logger.info(`supported Minecraft versions: ${supportedRange()}`)
+  const urls = [...tailnetNames.filter(n => n.includes('.')), ...binds, '127.0.0.1'].map(h => `http://${h.includes(':') ? `[${h}]` : h}:${port}/`)
+  console.log(`golemlink: open ${urls[0]}`)
+  for (const url of urls.slice(1)) console.log(`           or ${url}`)
+  if (!auth.isSetUp()) {
+    console.log('golemlink: no login yet. Open the page and create one with this code:')
+    auth.setupCode()
   }
   if (args.open) {
-    if (!termux.openUrl(url)) logger.warn('--open: termux-open-url is not available on this system')
+    if (!termux.openUrl(`http://127.0.0.1:${port}/`)) logger.warn('--open: termux-open-url is not available on this system')
   }
 
   if (termux.available.wakeLock) termux.wakeLock()
@@ -298,7 +336,8 @@ async function main () {
         sessions.destroyAll()
       } catch {}
       hub.destroy()
-      httpServer.close()
+      for (const server of httpServers) server.close()
+      try { auth.flush() } catch {}
       try { termux.wakeUnlock() } catch {}
       try { fs.unlinkSync(pidFile) } catch {}
       process.exit(0)

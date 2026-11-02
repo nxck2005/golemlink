@@ -84,8 +84,13 @@ export class Session {
       server,
       termux,
       logger,
-      broadcast: msg => hub.broadcast(msg)
+      broadcast: msg => {
+        if (msg.t === 'alert') this.lastAlert = { kind: msg.kind, text: msg.text, at: Date.now() }
+        hub.broadcast(msg)
+      }
     })
+    this.onlineSince = null
+    this.lastAlert = null
   }
 
   info () {
@@ -96,7 +101,10 @@ export class Session {
       state: this.state,
       reason: this.reason,
       detail: this.detail,
-      pendingMsa: this.pendingMsa
+      pendingMsa: this.pendingMsa,
+      onlineSince: this.onlineSince,
+      version: this.state === 'online' ? this.bot?.version || null : null,
+      lastAlert: this.lastAlert
     }
   }
 
@@ -377,6 +385,7 @@ export class Session {
 
   setState (state, { reason = null, detail = null, retryInMs = null } = {}) {
     this.state = state
+    if (state !== 'online') this.onlineSince = null
     this.reason = reason
     this.detail = detail
     this.retryInMs = retryInMs || 0
@@ -482,7 +491,9 @@ export class Session {
     this.playersTimer = setInterval(() => this.sendPlayers(), 500)
     this.playersTimer.unref?.()
 
+    this.onlineSince = Date.now()
     this.setState('online', { reason: null, detail: null })
+    this.manager.onOnline?.(this)
     // A client may have subscribed during connecting (including reconnects),
     // before InventoryMirror existed. Deltas cannot initialize its null player
     // inventory, so replace the pre-spawn snapshot with the complete state.
@@ -573,6 +584,7 @@ export class Session {
       xpProgress: bot.experience?.progress ?? null,
       gm: bot.game?.gameMode ?? null,
       quick: bot.quickBarSlot,
+      ping: bot.player?.ping ?? null,
       actionbar: this.actionbar,
       target: this.targetName(),
       ctl: this.movement ? this.movement.ctlState() : null

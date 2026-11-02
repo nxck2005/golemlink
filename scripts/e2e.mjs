@@ -6,6 +6,7 @@
 // version manifest are both available; otherwise it prints SKIPPED.
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
+import http from 'node:http'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
@@ -57,23 +58,22 @@ class WsClient {
     this.nextId = 1
   }
 
-  static async connect (port, token, timeout = 5000) {
+  static async connect (port, cookie, timeout = 5000) {
     const client = new WsClient(port)
-    await client.open(token, timeout)
+    await client.open(cookie, timeout)
     return client
   }
 
-  open (token, timeout) {
+  open (cookie, timeout) {
     return new Promise((resolve, reject) => {
       this.ws = new WebSocket(`ws://127.0.0.1:${this.port}`, {
-        headers: { Origin: `http://127.0.0.1:${this.port}` }
+        headers: { Origin: `http://127.0.0.1:${this.port}`, Cookie: cookie }
       })
       const timer = setTimeout(() => reject(new Error('websocket open timeout')), timeout)
       this.ws.on('error', err => {
         clearTimeout(timer)
         reject(err)
       })
-      this.ws.on('open', () => this.ws.send(JSON.stringify({ t: 'auth', token })))
       this.ws.on('message', data => {
         let msg
         try {
@@ -144,15 +144,20 @@ class WsClient {
   }
 }
 
+const E2E_LOGIN = { username: 'e2e', password: 'e2e-password', remember: true }
+
 class Daemon {
-  constructor (proc, token, port, output) {
+  constructor (proc, cookie, port, output) {
     this.proc = proc
-    this.token = token
+    this.cookie = cookie
     this.port = port
     this.output = output
   }
 
   static async start (dataDir, port) {
+    // Skip the Mojang client jar download in tests.
+    const configFile = path.join(dataDir, 'config.json')
+    if (!fs.existsSync(configFile)) fs.writeFileSync(configFile, JSON.stringify({ itemTextures: false }))
     const proc = spawn(process.execPath, [
       path.join(root, 'src', 'main.js'),
       '--data-dir', dataDir,
@@ -163,7 +168,7 @@ class Daemon {
       const timer = setTimeout(() => reject(new Error(`daemon start timeout\n${output}`)), 15000)
       const onData = data => {
         output += data.toString()
-        if (output.includes('golemlink: open')) {
+        if (/setup code \d{3} \d{3}/.test(output) || (output.includes('golemlink: open') && fs.existsSync(path.join(dataDir, 'auth.json')))) {
           clearTimeout(timer)
           resolve()
         }
@@ -175,8 +180,19 @@ class Daemon {
       })
     })
     await ready
-    const token = fs.readFileSync(path.join(dataDir, 'token'), 'utf8').trim()
-    return new Daemon(proc, token, port, output)
+    // First start: create the login with the printed setup code. Later
+    // starts on the same data dir sign in with it.
+    const code = /setup code (\d{3}) (\d{3})/.exec(output)
+    const base = `http://127.0.0.1:${port}`
+    const body = code ? { code: code[1] + code[2], ...E2E_LOGIN } : E2E_LOGIN
+    const res = await fetch(`${base}/api/${code ? 'setup' : 'login'}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: base },
+      body: JSON.stringify(body)
+    })
+    if (!res.ok) throw new Error(`e2e sign-in failed: ${res.status} ${await res.text()}`)
+    const cookie = res.headers.get('set-cookie').split(';')[0]
+    return new Daemon(proc, cookie, port, output)
   }
 
   async stop () {
@@ -204,7 +220,7 @@ async function withEnv (fn, { fakeOptions, noFake = false, port } = {}) {
   let fake = null
   if (!noFake) fake = await startFakeServer({ version: MC_VERSION, port: fakePort, ...fakeOptions })
   const daemon = await Daemon.start(dataDir, daemonPort)
-  const ws = await WsClient.connect(daemonPort, daemon.token)
+  const ws = await WsClient.connect(daemonPort, daemon.cookie)
   try {
     return await fn({ daemon, ws, fake, dataDir, fakePort })
   } finally {
@@ -459,33 +475,31 @@ async function tier1ConfigAndSecurity () {
   const port = await freePort()
   const daemon = await Daemon.start(dataDir, port)
   try {
-    const token = daemon.token
-    // wrong token -> close 4401
-    const bad = new WebSocket(`ws://127.0.0.1:${port}`, { headers: { Origin: `http://127.0.0.1:${port}` } })
-    const badCode = await new Promise(resolve => {
-      bad.on('open', () => bad.send(JSON.stringify({ t: 'auth', token: 'nope' })))
-      bad.on('close', code => resolve(code))
-      bad.on('error', () => resolve(-1))
+    const cookie = daemon.cookie
+    const closeCodeFor = headers => new Promise(resolve => {
+      const socket = new WebSocket(`ws://127.0.0.1:${port}`, { headers })
+      socket.on('close', code => resolve(code))
+      socket.on('error', () => resolve(-1))
       setTimeout(() => resolve(-2), 5000)
     })
-    check('wrong token closes with 4401', badCode === 4401, `code ${badCode}`)
-    // bad origin -> 4401
-    const badOrigin = new WebSocket(`ws://127.0.0.1:${port}`, { headers: { Origin: 'http://evil.example' } })
-    const originCode = await new Promise(resolve => {
-      badOrigin.on('open', () => badOrigin.send(JSON.stringify({ t: 'auth', token })))
-      badOrigin.on('close', code => resolve(code))
-      badOrigin.on('error', () => resolve(-1))
-      setTimeout(() => resolve(-2), 5000)
-    })
+    const origin = `http://127.0.0.1:${port}`
+    const badCode = await closeCodeFor({ Origin: origin, Cookie: 'golemlink_login=nope-nope-nope-nope-nope' })
+    check('wrong login cookie closes with 4401', badCode === 4401, `code ${badCode}`)
+    const noCookie = await closeCodeFor({ Origin: origin })
+    check('no login cookie closes with 4401', noCookie === 4401, `code ${noCookie}`)
+    const originCode = await closeCodeFor({ Origin: 'http://evil.example', Cookie: cookie })
     check('bad origin closes with 4401', originCode === 4401, `code ${originCode}`)
-    // auth timeout (no message) -> 4401
-    const idle = new WebSocket(`ws://127.0.0.1:${port}`, { headers: { Origin: `http://127.0.0.1:${port}` } })
-    const idleCode = await new Promise(resolve => {
-      idle.on('close', code => resolve(code))
-      idle.on('error', () => resolve(-1))
-      setTimeout(() => resolve(-2), 8000)
+    const me = await (await fetch(`${origin}/api/me`, { headers: { Cookie: cookie } })).json()
+    check('the setup login is signed in', me.signedIn === true && me.username === 'e2e', JSON.stringify(me))
+    const wrongPassword = await fetch(`${origin}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin }, body: JSON.stringify({ username: 'e2e', password: 'wrong' }) })
+    check('a wrong password is refused', wrongPassword.status === 401, `status ${wrongPassword.status}`)
+    const rebinding = await new Promise(resolve => {
+      http.get({ host: '127.0.0.1', port, path: '/', headers: { Host: `evil.example:${port}` } }, r => {
+        r.resume()
+        resolve(r.statusCode)
+      }).on('error', () => resolve(-1))
     })
-    check('auth timeout closes with 4401', idleCode === 4401, `code ${idleCode}`)
+    check('a foreign Host header is refused', rebinding === 421, `status ${rebinding}`)
 
     // HTTP checks
     const res = await fetch(`http://127.0.0.1:${port}/`, { method: 'GET' })
@@ -498,7 +512,7 @@ async function tier1ConfigAndSecurity () {
     check('POST rejected', post.status === 405, `status ${post.status}`)
     if (res.status === 200) {
       const csp = res.headers.get('content-security-policy') || ''
-      check('CSP present with ws connect-src', csp.includes('connect-src') && csp.includes(`ws://127.0.0.1:${port}`), csp)
+      check('CSP present with ws connect-src', csp.includes("connect-src 'self'") && csp.includes(`ws://127.0.0.1:${port}`), csp)
       check('nosniff present', res.headers.get('x-content-type-options') === 'nosniff')
       check('no-referrer present', res.headers.get('referrer-policy') === 'no-referrer')
     } else {

@@ -1,9 +1,7 @@
-import crypto from 'node:crypto'
 import { WebSocketServer } from 'ws'
 import { validateClientMessage, MAX_CLIENT_FRAME } from './protocol.js'
-import { sanitizeAccount, sanitizeServer } from './config.js'
+import { cookieToken, clientIp } from './api.js'
 
-const AUTH_TIMEOUT_MS = 5000
 const RATE_PER_SECOND = 60
 const RATE_BURST = 120
 const FLOOD_WINDOW_MS = 5000
@@ -12,49 +10,32 @@ const BACKPRESSURE_HIGH = 1024 * 1024
 const BACKPRESSURE_LOW = 256 * 1024
 
 export class WsHub {
-  constructor ({ server, host, port, unsafeBind, token, sessions, logger, control, termux, authTimeoutMs }) {
-    this.server = server
-    this.host = host
-    this.port = port
-    this.unsafeBind = unsafeBind
-    this.authTimeoutMs = authTimeoutMs || AUTH_TIMEOUT_MS
-    this.tokenDigest = crypto.createHash('sha256').update(token).digest()
+  constructor ({ server, access, auth, sessions, logger, control, termux, textures }) {
+    this.servers = server ? [server] : []
+    this.access = access
+    this.auth = auth
     this.sessions = sessions
     this.logger = logger
     this.control = control
     this.termux = termux
+    this.textures = textures
     this.clients = new Set()
     this.nextClientId = 1
     this.wss = null
     this.drainTimer = null
   }
 
-  allowedOrigins () {
-    const origins = new Set([
-      `http://127.0.0.1:${this.port}`,
-      `http://localhost:${this.port}`
-    ])
-    if (this.unsafeBind) origins.add(`http://${this.unsafeBind}:${this.port}`)
-    return origins
-  }
-
-  allowedHosts () {
-    const hosts = new Set([
-      `127.0.0.1:${this.port}`,
-      `localhost:${this.port}`
-    ])
-    if (this.unsafeBind) hosts.add(`${this.unsafeBind}:${this.port}`)
-    return hosts
-  }
-
   attach () {
     this.wss = new WebSocketServer({ noServer: true, maxPayload: MAX_CLIENT_FRAME })
-    this.origins = this.allowedOrigins()
-    this.hosts = this.allowedHosts()
-    this.server.on('upgrade', (req, socket, head) => this.handleUpgrade(req, socket, head))
-    this.wss.on('connection', ws => this.onConnection(ws))
+    for (const server of this.servers) this.attachServer(server)
+    this.wss.on('connection', (ws, req, login) => this.onConnection(ws, login))
     this.drainTimer = setInterval(() => this.checkBackpressure(), 1000)
     this.drainTimer.unref?.()
+  }
+
+  attachServer (server) {
+    if (!this.servers.includes(server)) this.servers.push(server)
+    server.on('upgrade', (req, socket, head) => this.handleUpgrade(req, socket, head))
   }
 
   destroy () {
@@ -71,39 +52,38 @@ export class WsHub {
   handleUpgrade (req, socket, head) {
     const origin = req.headers.origin
     const host = req.headers.host
-    const originOk = this.origins.has(origin)
-    const hostOk = this.hosts.has(host)
-    if (!originOk || !hostOk) {
+    const reject = (reason, log) => {
       // Complete the handshake so the browser sees close code 4401 rather
       // than an opaque network error.
-      this.wss.handleUpgrade(req, socket, head, ws => {
-        ws.close(4401, 'forbidden origin or host')
-      })
-      this.logger.warn(`ws upgrade rejected (origin=${origin || '-'} host=${host || '-'})`)
+      this.wss.handleUpgrade(req, socket, head, ws => ws.close(4401, reason))
+      if (log) this.logger.warn(log)
+    }
+    if (!this.access.originAllowed(origin) || !this.access.hostAllowed(host)) {
+      reject('forbidden origin or host', `ws upgrade rejected (origin=${origin || '-'} host=${host || '-'})`)
       return
     }
-    this.wss.handleUpgrade(req, socket, head, ws => this.wss.emit('connection', ws, req))
+    const login = this.auth.verify(cookieToken(req), { ip: clientIp(req) })
+    if (!login) {
+      reject('sign in required')
+      return
+    }
+    this.wss.handleUpgrade(req, socket, head, ws => this.wss.emit('connection', ws, req, login))
   }
 
-  onConnection (ws) {
+  onConnection (ws, login) {
     const client = {
       id: this.nextClientId++,
       ws,
-      authed: false,
+      loginId: login.id,
+      authed: true,
       subscriptions: new Set(),
       tokens: RATE_BURST,
       lastRefill: Date.now(),
       flood: [],
       paused: false,
-      closed: false,
-      authTimer: null
+      closed: false
     }
     this.clients.add(client)
-    client.authTimer = setTimeout(() => {
-      if (!client.authed) this.close(client, 4401, 'auth timeout')
-    }, this.authTimeoutMs)
-    client.authTimer.unref?.()
-
     ws.on('message', data => {
       try {
         this.onMessage(client, data)
@@ -114,6 +94,14 @@ export class WsHub {
     })
     ws.on('close', () => this.onClose(client))
     ws.on('error', () => {})
+    this.send(client, this.hello())
+  }
+
+  // Disconnects every socket opened with a login that was just signed out.
+  closeLogin (loginId) {
+    for (const client of this.clients) {
+      if (client.loginId === loginId) this.close(client, 4401, 'signed out')
+    }
   }
 
   onMessage (client, data) {
@@ -145,35 +133,7 @@ export class WsHub {
       this.sendErr(client, undefined, 'bad_json', 'message is not valid JSON')
       return
     }
-
-    if (!client.authed) {
-      this.handleAuth(client, msg)
-      return
-    }
     this.handleMessage(client, msg)
-  }
-
-  handleAuth (client, msg) {
-    if (msg?.t !== 'auth' || typeof msg.token !== 'string') {
-      this.sendErr(client, msg?.id, 'auth_required', 'first message must be an auth message')
-      this.close(client, 4401, 'auth required')
-      return
-    }
-    const digest = crypto.createHash('sha256').update(msg.token).digest()
-    let valid = false
-    try {
-      valid = crypto.timingSafeEqual(digest, this.tokenDigest)
-    } catch {
-      valid = false
-    }
-    if (!valid) {
-      this.sendErr(client, msg.id, 'bad_token', 'token rejected')
-      this.close(client, 4401, 'bad token')
-      return
-    }
-    client.authed = true
-    clearTimeout(client.authTimer)
-    this.send(client, this.hello())
   }
 
   hello () {
@@ -191,7 +151,9 @@ export class WsHub {
         notifications: Boolean(this.termux?.available?.notifications),
         wakeLock: Boolean(this.termux?.available?.wakeLock)
       },
-      daemon: this.control.daemonInfo()
+      daemon: this.control.daemonInfo(),
+      user: this.auth?.username?.() || null,
+      textures: this.textures ? this.textures.ready() : []
     }
   }
 
@@ -267,7 +229,6 @@ export class WsHub {
   onClose (client) {
     if (client.closed) return
     client.closed = true
-    clearTimeout(client.authTimer)
     this.clearSubscriptions(client)
     this.clients.delete(client)
   }
