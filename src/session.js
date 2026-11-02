@@ -8,6 +8,7 @@ import { Minimap } from './minimap.js'
 import { ChatLog, validateChatText, createRateLimiter, componentToPlain } from './chat.js'
 import { normalizeComponentText } from './protocol.js'
 import { Alerts } from './alerts.js'
+import { Board, toSegs } from './board.js'
 import { compileTrigger } from './config.js'
 
 const require = createRequire(import.meta.url)
@@ -64,6 +65,7 @@ export class Session {
     this.minimap = null
     this.statusTimer = null
     this.playersTimer = null
+    this.board = null
     this.actionbar = null
     this.lastTarget = null
     this.lastTargetAt = 0
@@ -299,6 +301,10 @@ export class Session {
       clearInterval(this.playersTimer)
       this.playersTimer = null
     }
+    if (this.board) {
+      this.board.detach()
+      this.board = null
+    }
   }
 
   classify (kind, data, bot) {
@@ -471,6 +477,9 @@ export class Session {
     this.minimap.start()
     this.minimap.refreshAll()
 
+    this.board = new Board({ bot, send: board => this.sendToSubscribers({ t: 'board', s: this.id, ...board }) })
+    this.board.attach()
+
     bot.on('message', (message, position, sender) => this.handleMessage(message, position, sender))
     bot.on('actionBar', message => {
       try {
@@ -631,16 +640,33 @@ export class Session {
     if (!bot) return []
     const out = []
     for (const player of Object.values(bot.players || {})) {
-      if (!player || player.username === bot.username) continue
+      if (!player) continue
       const entry = { name: player.username, ping: player.ping ?? null, gm: player.gamemode ?? null }
-      const entity = player.entity
-      if (entity && bot.entity && entity.position.distanceTo(bot.entity.position) < 64) {
-        entry.x = Math.round(entity.position.x * 10) / 10
-        entry.z = Math.round(entity.position.z * 10) / 10
+      const team = bot.teamMap && Object.hasOwn(bot.teamMap, player.username) ? bot.teamMap[player.username] : null
+      if (team) entry.team = String(team.team)
+      const shown = this.playerSegs(player, team)
+      if (shown) entry.dn = shown
+      if (player.username === bot.username) {
+        entry.me = true
+      } else {
+        const entity = player.entity
+        if (entity && bot.entity && entity.position.distanceTo(bot.entity.position) < 64) {
+          entry.x = Math.round(entity.position.x * 10) / 10
+          entry.z = Math.round(entity.position.z * 10) / 10
+        }
       }
       out.push(entry)
     }
-    return out
+    // The tab list order: spectators last, then by team, then by name.
+    return out.sort((a, b) => (a.gm === 3) - (b.gm === 3) || (a.team || '').localeCompare(b.team || '') || a.name.localeCompare(b.name))
+  }
+
+  // The name as the tab list shows it, or nothing when it is the plain name.
+  playerSegs (player, team) {
+    let segs = toSegs(player.displayName)
+    if (segs.map(seg => seg.x).join('') === player.username) segs = team ? toSegs(team.displayName(player.username)) : segs
+    if (!segs.length || (segs.length === 1 && segs[0].x === player.username && Object.keys(segs[0]).length === 1)) return null
+    return segs
   }
 
   sendPlayers () {
@@ -677,6 +703,7 @@ export class Session {
       cursor: inventoryState.cursor,
       chat: this.chatLog.backlog(),
       players: this.state === 'online' ? this.playersPayload() : [],
+      board: this.state === 'online' && this.board ? this.board.payload() : null,
       features: this.features()
     }
   }

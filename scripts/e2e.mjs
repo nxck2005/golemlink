@@ -696,6 +696,20 @@ async function runVanillaScenario (jar) {
         ws.request({ t: 'closeWindow', s: SESSION }).catch(() => {})
       }
 
+      // 7. sidebar scoreboard, boss bar and tab list
+      await vanilla.console('scoreboard objectives add e2e dummy {"text":"E2E BOARD","color":"yellow"}')
+      await vanilla.console('scoreboard objectives setdisplay sidebar e2e')
+      await vanilla.console('scoreboard players set Kills e2e 14')
+      await vanilla.console('bossbar add e2e:bar {"text":"E2E BAR"}')
+      await vanilla.console('bossbar set e2e:bar players E2EBot')
+      const board = await ws.waitFor('board', m => m.s === SESSION && m.sidebar?.lines?.some(l => l.score === '14') && m.bars?.length, 10000).catch(() => null)
+      const title = (board?.sidebar?.title || []).map(seg => seg.x).join('')
+      check('tier2 scoreboard and boss bar arrived', title === 'E2E BOARD' && board.sidebar.title[0].c === '#ffff55', title)
+      await vanilla.console('bossbar remove e2e:bar')
+      await vanilla.console('scoreboard objectives remove e2e')
+      const cleared = await ws.waitFor('board', m => m.s === SESSION && m.sidebar === null && m.bars.length === 0, 10000).catch(() => null)
+      check('tier2 scoreboard removal arrived', Boolean(cleared))
+
       // 8. damage alert (before kick; a stopped session has no health)
       await vanilla.console('damage E2EBot 2')
       const alert = await ws.waitFor('alert', m => m.kind === 'damage', 8000).catch(() => null)

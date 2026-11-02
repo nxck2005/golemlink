@@ -182,22 +182,6 @@ function renderSessions () {
   if (!form.classList.contains('hidden')) renderStartForm()
 }
 
-function renderPlayers () {
-  const box = document.getElementById('players-list')
-  box.textContent = ''
-  document.getElementById('players-count').textContent = store.players.length ? String(store.players.length) : ''
-  if (!store.players.length) {
-    box.appendChild(emptyLine(store.sessionId ? 'Nobody to show yet.' : 'Open a session to see who’s online.'))
-    return
-  }
-  const players = [...store.players].sort((a, b) => a.name.localeCompare(b.name))
-  for (const player of players) {
-    const chip = el('span', 'chip', player.name)
-    if (player.ping != null) chip.appendChild(el('span', 't3 num', `${player.ping} ms`))
-    box.appendChild(chip)
-  }
-}
-
 // --- servers -----------------------------------------------------------------
 function serverForm (existing, onCancel) {
   const form = el('form', 'form list-edit')
@@ -425,7 +409,6 @@ function renderDaemon () {
 
 export function renderSetup () {
   renderSessions()
-  renderPlayers()
   renderServers()
   renderAccounts()
   renderDaemon()
@@ -455,13 +438,8 @@ export function initSetup () {
   initPassword()
 
   store.on('sessions', renderSessions)
-  store.on('session', () => {
-    renderSessions()
-    renderPlayers()
-  })
+  store.on('session', renderSessions)
   store.on('connection', renderSessions)
-  store.on('players', renderPlayers)
-  store.on('snapshot', renderPlayers)
   store.on('servers', () => {
     addServer.disabled = false
     renderServers()

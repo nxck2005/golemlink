@@ -137,8 +137,12 @@ export function componentToPlain (raw, registry) {
   }
 }
 
+export function chatClass (registry) {
+  return loadChatClass()(registry)
+}
+
 export function makeChatMessage (raw, registry) {
-  const ChatMessage = loadChatClass()(registry)
+  const ChatMessage = chatClass(registry)
   return new ChatMessage(raw)
 }
 

@@ -7,10 +7,11 @@ import { initChat, onChatChange, recentLines, makeLine } from './chat.js'
 import { initMove, releaseAllControls, onResize } from './move.js'
 import { initPlay, playKey, closeMenu, closeWindow, menuOpen } from './play.js'
 import { initSetup, renderLogins } from './setup.js'
+import { initBoard } from './board.js'
 import { useTextures, texturesVersion } from './items.js'
 import { el, sessionName, sessionStatus, dotClass } from './format.js'
 
-const VIEWS = ['play', 'move', 'setup', 'chat']
+const VIEWS = ['play', 'server', 'move', 'setup', 'chat']
 const DESKTOP = window.matchMedia('(min-width: 1100px)')
 
 // --- routing ---------------------------------------------------------------
@@ -205,6 +206,7 @@ function initShell () {
   initChat()
   initMove()
   initSetup()
+  initBoard()
 
   for (const button of document.querySelectorAll('.rail-item[data-view], .p-tab[data-view]')) {
     button.addEventListener('click', () => setView(button.dataset.view))

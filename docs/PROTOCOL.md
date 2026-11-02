@@ -132,14 +132,15 @@ below), which are v1 extensions to the spec table.
 |---|---|
 | `sessions` | full session list, sent to every signed-in client on any lifecycle change |
 | `state` | `s`, `state` (`connecting`,`online`,`reconnecting`,`stopped`), `reason`, `detail`, `retryInMs?` |
-| `snapshot` | `s`, `state`, `reason`, `detail`, `status`, `inventory`, `window`, `cursor`, `chat`, `players`, `features` |
+| `snapshot` | `s`, `state`, `reason`, `detail`, `status`, `inventory`, `window`, `cursor`, `chat`, `players`, `board`, `features` |
 | `chat` | `s`, `ts`, `plain`, `segs`, `echo?` |
 | `status` | `s`, `x,y,z,yaw,pitch,dim,hp,food,sat,xpLvl,xpProgress,gm,quick,ping,actionbar,target,ctl` (5 Hz) |
 | `inv` | `s`, `window`, `slots` delta `{ "<slot>": item \| null }`, `cursor?` (debounced 50 ms) |
 | `window` | `s`, a window object or `null` |
 | `tiles` | `s`, `[{cx,cz,rgb}]` (at most 32 per message) |
 | `untile` | `s`, `[{cx,cz}]` |
-| `players` | `s`, `[{name,ping,gm,x?,z?}]` (2 Hz) |
+| `players` | `s`, `[{name,ping,gm,team?,dn?,me?,x?,z?}]` in tab-list order (2 Hz) |
+| `board` | `s`, `sidebar`, `bars`, `tab`; sent when any of them changes, at most 4 times a second |
 | `ctlReset` | `s`, `reason` (`deadman`, `disconnect`, `goto`, `stop`) |
 | `goto` | `s`, `phase` (`started`, `arrived`, `failed`, `cancelled`), `detail?` |
 | `alert` | `s`, `kind` (`keyword`,`damage`,`death`,`stopped`,`msa`), `text` |
@@ -159,6 +160,21 @@ When a client's `bufferedAmount` exceeds 1 MB, the server stops sending it
 `snapshot` for every subscription and resumes.
 
 ## Shapes
+
+**Board**
+
+```json
+{"sidebar":{"title":[{"x":"SURVIVAL","c":"#ffff55"}],"lines":[{"segs":[{"x":"Kills: "}],"score":"14"}]},
+ "bars":[{"id":"…","segs":[{"x":"Dragon"}],"health":0.68,"color":"purple"}],
+ "tab":{"header":[{"x":"Welcome\nplay.example.net"}],"footer":[]}}
+```
+
+`sidebar` is `null` when the server shows none. Lines are in display order
+(highest score first, at most 15). A line has `score` (plus `sc`, its colour)
+when the server shows the number, `scoreSegs` when it shows fixed text, and
+neither when it hides scores. All text is chat `segs`, with `§` codes already
+turned into colours. In `players`, `dn` is the tab-list name as segs when it
+differs from the plain name, `team` the team id and `me` marks the bot.
 
 **Item**
 

@@ -27,6 +27,32 @@ server.on('request', createHttpServer({ webDir: path.join(root, 'web'), access, 
 const browser = await chromium.launch({ headless: true })
 const errors = []
 const USER = { username: 'smoke', password: 'smoke-password' }
+const seg = (x, c) => c ? { x, c } : { x }
+const PLAYERS = [
+  { name: 'golem', ping: 38, me: true, dn: [seg('[Member] ', '#aaaaaa'), seg('golem', '#ffffff')] },
+  { name: 'Alex', ping: 30, dn: [seg('[VIP] ', '#55ff55'), seg('Alex', '#55ff55')] },
+  { name: 'Steve_Builds', ping: 112 },
+  { name: 'a_rather_long_name', ping: 64, dn: [seg('[Mod] ', '#ff5555'), seg('a_rather_long_name', '#ffffff')] },
+  { name: 'Kai', ping: 9 }
+]
+const BOARD = {
+  sidebar: {
+    title: [{ x: 'SURVIVAL', c: '#ffff55', b: 1 }],
+    lines: [
+      { segs: [seg('11/02/26', '#aaaaaa')] },
+      { segs: [] },
+      { segs: [seg('Rank: ', '#ffffff'), seg('Member', '#55ffff')] },
+      { segs: [seg('Balance: ', '#ffffff'), seg('$12,480', '#ffaa00')] },
+      { segs: [seg('Claim blocks: ', '#ffffff'), seg('1,250', '#55ff55')] },
+      { segs: [seg('Kills: ', '#ffffff'), seg('14', '#ff5555')] },
+      { segs: [seg('Playtime: ', '#ffffff'), seg('41h', '#ffff55')] },
+      { segs: [] },
+      { segs: [seg('play.example.net', '#ffff55')] }
+    ]
+  },
+  bars: [{ id: 'b1', segs: [{ x: 'Dragon event starts soon', c: '#ff55ff', b: 1 }], health: 0.68, color: 'purple' }],
+  tab: { header: [seg('Welcome to ', '#ffffff'), seg('Example', '#ffaa00'), seg('\nplay.example.net', '#aaaaaa')], footer: [seg('Store: store.example.net', '#55ffff')] }
+}
 
 try {
   for (const viewport of [{ width: 1366, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }, { width: 844, height: 390 }]) {
@@ -74,7 +100,7 @@ try {
           slots[9] = { n: 'diamond', d: 'Diamond', c: 4, lore: [] }
           slots[36] = { n: 'compass', d: 'Compass', cn: 'Server selector', c: 1, lore: ['Right click to pick a server'] }
           emit({ t: 'snapshot', s: msg.s, status: { x: 12, y: 64, z: -8, hp: 16, food: 18, xpLvl: 7, xpProgress: 0.5, yaw: 0, pitch: 0, quick: 0, ping: 42, ctl: {} },
-            inventory: { id: 0, slots }, window: null, cursor: { n: 'stone', d: 'Stone', c: 2 }, players: [{ name: 'Alex', ping: 30 }],
+            inventory: { id: 0, slots }, window: null, cursor: { n: 'stone', d: 'Stone', c: 2 }, players: PLAYERS, board: BOARD,
             chat: [{ plain: 'Welcome to the server', ts: Date.now() }, { plain: 'Alex: hello there', ts: Date.now() }] })
         }
       })
@@ -233,13 +259,26 @@ try {
     await page.locator('#chat-send').click()
     assert.ok(sent.some(msg => msg.t === 'chat' && msg.text === 'Hello world'))
 
-    for (const name of ['play', 'chat', 'move', 'setup']) {
+    // The scoreboard sits on Play; the Server view has it with the tab list.
+    await view('play')
+    await page.locator('#board-card .sb-line').first().waitFor()
+    assert.equal(await page.locator('#play-bars .boss').count(), 1)
+    if (!desktop) {
+      assert.equal(await page.locator('#board-card .sb > :visible').count(), 5)
+      await page.locator('#board-card .sb-more').click()
+      assert.equal(await page.locator('#board-card .sb > :visible').count(), BOARD.sidebar.lines.length)
+    }
+    await view('server')
+    assert.equal(await page.locator('#tab-players .tab-player').count(), PLAYERS.length)
+    assert.match(await page.locator('#tab-header').innerText(), /play\.example\.net/)
+
+    for (const name of ['play', 'chat', 'server', 'move', 'setup']) {
       if (desktop && name === 'chat') continue
       await view(name)
       const overflow = await page.evaluate(() => [...document.querySelectorAll('body *')].filter(el => {
         const rect = el.getBoundingClientRect()
-        return rect.width > 0 && rect.height > 0 && el.offsetParent !== null && (rect.right > innerWidth + 1 || rect.left < -1)
-      }).map(el => el.id || el.className).slice(0, 5))
+        return rect.width > 0 && rect.height > 0 && el.offsetParent !== null && getComputedStyle(el.parentElement).overflow !== 'hidden' && (rect.right > innerWidth + 1 || rect.left < -1)
+      }).map(el => el.id || el.className || `${el.tagName}<${el.parentElement?.className}`).slice(0, 5))
       assert.deepEqual(overflow, [], `${viewport.width}px ${name} has horizontal overflow`)
       if (name === 'move') {
         await page.waitForFunction(() => !document.getElementById('btn-jump').disabled)

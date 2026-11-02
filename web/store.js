@@ -19,6 +19,7 @@ export const store = {
   snapshot: null,
   status: null,
   players: [],
+  board: null, // { sidebar, bars, tab }
   chat: [],
   window: null,
   inventory: null,
@@ -75,6 +76,7 @@ export const store = {
     this.inventory = null
     this.cursor = null
     this.players = []
+    this.board = null
     this.tiles.clear()
     this.emit('session', id)
   },

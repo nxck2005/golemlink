@@ -25,6 +25,9 @@ inside **Termux on Android**.
   soon as it opens. Mouse clicks work as in the game (left, right, shift-click,
   Q to drop); on touch a tap is a left click and a long press opens a menu with
   right click, shift-click and drop. Keys 1–9, E (use) and F (interact).
+- **Scoreboard:** the server's sidebar scoreboard and boss bars on Play, in
+  their Minecraft colours. The Server view adds the tab list: header, players
+  with their team names and ping, and footer.
 - **Item textures:** real item and block icons, taken from Mojang's client jar
   for the server's version the first time a bot joins it.
 - **Movement:** keyboard WASD and holdable buttons, Space to jump,

@@ -1,6 +1,6 @@
 import { store } from './store.js'
 import { send } from './net.js'
-import { ensureContrast } from './items.js'
+import { appendSegs } from './board.js'
 import { serverFor } from './play.js'
 
 let log, jumpButton, form, input, suggestionBox
@@ -77,21 +77,7 @@ export function makeLine (line) {
   time.textContent = new Date(line.ts || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   row.appendChild(time)
   const segments = line.segs && line.segs.length ? line.segs : [{ x: line.plain || '' }]
-  for (const seg of segments) {
-    const span = document.createElement('span')
-    span.textContent = seg.x
-    if (seg.c) span.style.color = ensureContrast(seg.c)
-    if (seg.b) span.style.fontWeight = '600'
-    if (seg.i) span.style.fontStyle = 'italic'
-    if (seg.u || seg.s) {
-      const parts = []
-      if (seg.u) parts.push('underline')
-      if (seg.s) parts.push('line-through')
-      span.style.textDecoration = parts.join(' ')
-    }
-    if (seg.o) span.style.opacity = '0.7'
-    row.appendChild(span)
-  }
+  appendSegs(row, segments)
   return row
 }
 

@@ -88,7 +88,7 @@ function handle (msg) {
   if (!msg || typeof msg !== 'object') return
   // A socket can be subscribed to several bots. Never apply another bot's
   // inventory, map or completion response to the selected session.
-  const scoped = ['snapshot', 'status', 'chat', 'inv', 'window', 'tiles', 'untile', 'players', 'ctlReset', 'goto', 'tab']
+  const scoped = ['snapshot', 'status', 'chat', 'inv', 'window', 'tiles', 'untile', 'players', 'board', 'ctlReset', 'goto', 'tab']
   if (scoped.includes(msg.t) && msg.s !== store.sessionId) return
   switch (msg.t) {
     case 'hello': {
@@ -129,6 +129,7 @@ function handle (msg) {
         store.inventory = msg.inventory
         store.cursor = msg.cursor
         store.players = msg.players || []
+        store.board = msg.board || null
         store.tiles.clear()
         if (msg.features) store.features = { ...store.features, ...msg.features }
         store.emit('snapshot')
@@ -169,6 +170,10 @@ function handle (msg) {
         store.players = msg.players || []
         store.emit('players')
       }
+      break
+    case 'board':
+      store.board = { sidebar: msg.sidebar || null, bars: msg.bars || [], tab: msg.tab || null }
+      store.emit('board')
       break
     case 'ctlReset':
       if (msg.s === store.sessionId) store.emit('ctlReset', msg)
