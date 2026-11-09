@@ -151,3 +151,27 @@ test('session isolation: throws in one session never take down another', async (
     await fake.stop()
   }
 })
+
+test('an online bot ends every tick with tick_end, and stops when the session stops', async () => {
+  const fake = await startFakeServer({ version: MC_VERSION })
+  const session = makeSession({ server: serverConfig(fake.port) })
+  try {
+    session.start()
+    await waitUntil(() => session.state === 'online', { timeout: 15000, label: 'online' })
+    const before = fake.countPackets('tick_end')
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    const perSecond = fake.countPackets('tick_end') - before
+    // 20 per second; leave room for timer jitter on a loaded test machine
+    assert.ok(perSecond >= 15 && perSecond <= 24, `expected about 20 tick_end per second, got ${perSecond}`)
+
+    session.stop()
+    await waitUntil(() => session.state === 'stopped', { timeout: 5000, label: 'stopped' })
+    const afterStop = fake.countPackets('tick_end')
+    await new Promise(resolve => setTimeout(resolve, 300))
+    assert.equal(fake.countPackets('tick_end'), afterStop, 'no tick_end after the session stops')
+    assert.equal(session.tickEnd, null)
+  } finally {
+    session.destroy()
+    await fake.stop()
+  }
+})

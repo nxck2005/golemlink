@@ -9,6 +9,7 @@ import { ChatLog, validateChatText, createRateLimiter, componentToPlain } from '
 import { normalizeComponentText } from './protocol.js'
 import { Alerts } from './alerts.js'
 import { Board, toSegs } from './board.js'
+import { TickEnd } from './tickend.js'
 import { compileTrigger } from './config.js'
 
 const require = createRequire(import.meta.url)
@@ -61,6 +62,7 @@ export class Session {
     this.kickTimes = []
     this.releaseAuth = null
     this.movement = null
+    this.tickEnd = null
     this.inventory = null
     this.minimap = null
     this.statusTimer = null
@@ -183,6 +185,15 @@ export class Session {
       if (this.bot === bot) this.armNoSpawnTimer()
     })
     bot.once('spawn', () => this.handleSpawn(bot))
+    // tick_end follows mineflayer's physics timer, which starts on 'login'.
+    const tickEnd = new TickEnd({
+      bot,
+      onError: err => this.logger.warn(`session ${this.id}: stopped sending tick_end (${err.message})`)
+    })
+    this.tickEnd = tickEnd
+    bot.once('login', () => {
+      if (this.bot === bot) tickEnd.start()
+    })
     this.armNoSpawnTimer()
   }
 
@@ -281,6 +292,10 @@ export class Session {
   }
 
   teardownModules () {
+    if (this.tickEnd) {
+      this.tickEnd.stop()
+      this.tickEnd = null
+    }
     if (this.movement) {
       this.movement.destroy()
       this.movement = null
